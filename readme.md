@@ -2,11 +2,12 @@
 
 <!-- GIF del dashboard funcionando va aquí — capturar con Filter #1 en rojo (estado más visual) -->
 <!-- ![WTP Digital Twin demo](docs/demo.gif) -->
-
+![WTP Digital Twin](docs/cover.png)
 **[→ Live Demo](https://your-deploy-url-here)** · Three.js · MQTT · No backend · No database · Runs entirely in the browser
 
 ---
 
+![WTP Digital Twin](docs/cover_2.png)
 ## What is this
 
 A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, and a rule engine that detects process anomalies. No Docker, no server, no auth.
@@ -180,7 +181,7 @@ Key design decisions:
 
 ## Built by
 
-[Your Name](https://joelbenitez.dev) · [LinkedIn](https://linkedin.com) · [Twitter](https://twitter.com)
+[Joel Benitez](https://joelbenitez.dev) · [LinkedIn](https://linkedin.com) · [Twitter](https://twitter.com)
 
 ---
 
