@@ -1,13 +1,682 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>digital-twin-water</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WTP Digital Twin</title>
+
+  <!-- Fuentes — JetBrains Mono para valores numéricos, IBM Plex Sans para UI -->
+  <!-- Evitar Inter genérico — señal de AI slop. JetBrains Mono tiene mejor
+       legibilidad en 10–12px que Fira Code o Source Code Pro. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    /* ── Tokens de diseño ── DESIGN.md §Tokens de diseño ──────────────────── */
+    :root {
+      /* Fondos */
+      --bg:    #0b0c0e;
+      --bg1:   #111316;
+      --bg2:   #16181c;
+      --bg3:   #1c1f24;
+
+      /* Bordes */
+      --line:  #ffffff0f;
+      --line2: #ffffff18;
+
+      /* Texto */
+      --text0: #f0f0f0;
+      --text1: #a0a4ad;
+      --text2: #52565f;
+
+      /* Semánticos — SOLO para estado de proceso y acciones */
+      --green:    #22c55e;
+      --amber:    #f59e0b;
+      --red:      #ef4444;
+      --blue:     #3b82f6;
+
+      /* Semánticos con opacidad — para fondos de estado */
+      --green-bg: #22c55e12;
+      --amber-bg: #f59e0b14;
+      --red-bg:   #ef444414;
+      --blue-bg:  #3b82f614;
+    }
+
+    /* ── Reset y base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'IBM Plex Sans', 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text0);
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ── Scrollbar mínima ──────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 2px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 1px; }
+
+    /* ── Live dot ──────────────────────────────────────────────────────────── */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+    .live-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+    .live-dot.pulse {
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    /* ── Transición de alerta al resolverse ────────────────────────────────── */
+    .alert-item {
+      transition: opacity 0.2s ease;
+    }
+
+    /* ── Mapa oscuro ───────────────────────────────────────────────────────── */
+    /* Convierte tiles OSM claros en mapa coherente con el tema oscuro
+       sin necesitar tiles propietarios ni de pago. */
+    .map-tiles-dark {
+      filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9);
+    }
+
+    /* ── user-select: none en elementos que se actualizan frecuentemente ───── */
+    /* Evita selecciones accidentales al leer valores que cambian cada 500ms. */
+    .sensor-row,
+    .alert-item,
+    #topbar {
+      user-select: none;
+    }
+
+    /* ══ LAYOUT PRINCIPAL ═══════════════════════════════════════════════════ */
+
+    /* ── Topbar ─────────────────────────────────────────────────────────────  */
+    #topbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      z-index: 10;
+      background: var(--bg1);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 0;
+    }
+
+    /* ── Viewport 3D — fullscreen bajo el topbar ────────────────────────────  */
+    /* Los paneles flotan sobre él con position: absolute.
+       El renderer de Three.js usa alpha: true para fundirse con --bg. */
+    #viewport {
+      position: absolute;
+      top: 40px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg);
+    }
+
+    /* ── Panel izquierdo — Telemetría ───────────────────────────────────────  */
+    #panel-left {
+      position: absolute;
+      top: 52px;
+      left: 12px;
+      bottom: 12px;
+      width: 210px;
+      z-index: 5;
+      background: var(--bg1);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Panel derecho — Alertas + MQTT + Minimap ───────────────────────────  */
+    #panel-right {
+      position: absolute;
+      top: 52px;
+      right: 12px;
+      bottom: 12px;
+      width: 220px;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Sub-paneles del panel derecho */
+    .sub-panel {
+      background: var(--bg1);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    /* Panel de alertas — ocupa el espacio disponible */
+    #panel-alerts {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    /* Panel MQTT — altura por contenido */
+    #panel-mqtt {
+      flex-shrink: 0;
+    }
+
+    /* Panel minimap — altura fija */
+    #panel-minimap {
+      flex-shrink: 0;
+      height: 120px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Panel headers — compartidos ────────────────────────────────────────  */
+    .panel-header {
+      padding: 10px 12px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      height: 36px;
+    }
+
+    .panel-title {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text1);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Sensor rows ────────────────────────────────────────────────────────  */
+    .sensor-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      padding: 7px 12px;
+      min-height: 36px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      transition: background-color 0.15s;
+    }
+
+    .sensor-row:last-child {
+      border-bottom: none;
+    }
+
+    .sensor-row:hover {
+      background: var(--bg3);
+    }
+
+    .sensor-name {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sensor-bar-wrap {
+      height: 2px;
+      border-radius: 1px;
+      background: var(--line2);
+      margin-top: 4px;
+      overflow: hidden;
+    }
+
+    .sensor-bar-fill {
+      height: 100%;
+      border-radius: 1px;
+      width: 0%;
+      transition: width 0.3s ease, background-color 0.3s ease;
+    }
+
+    .sensor-value-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+
+    .sensor-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--green);
+      transition: color 0.3s ease;
+    }
+
+    .sensor-unit {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 8px;
+      color: var(--text2);
+    }
+
+    /* Row en estado danger — fondo rojo muy sutil */
+    .sensor-row.is-danger {
+      background-color: var(--red-bg);
+    }
+
+    /* ── Alert items ────────────────────────────────────────────────────────  */
+    .alert-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      position: relative;
+      padding-left: 15px; /* espacio para el acento izquierdo */
+    }
+
+    .alert-item:last-child {
+      border-bottom: none;
+    }
+
+    .alert-accent {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+    }
+
+    .alert-sensors {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text2);
+      margin-bottom: 4px;
+    }
+
+    .alert-message {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text0);
+      line-height: 1.4;
+    }
+
+    .alert-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text2);
+      margin-top: 4px;
+    }
+
+    .alert-empty {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text2);
+      padding: 16px 12px;
+      text-align: center;
+    }
+
+    /* ── MQTT panel rows ────────────────────────────────────────────────────  */
+    #panel-mqtt .mqtt-body {
+      padding: 12px;
+    }
+
+    .mqtt-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .mqtt-row:last-of-type {
+      margin-bottom: 0;
+    }
+
+    .mqtt-label {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text2);
+    }
+
+    .mqtt-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text1);
+    }
+
+    .mqtt-connect-btn {
+      width: 100%;
+      background: var(--blue-bg);
+      color: var(--blue);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 4px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      padding: 6px 12px;
+      margin-top: 10px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .mqtt-connect-btn:hover {
+      opacity: 0.8;
+    }
+
+    .mqtt-connect-btn:disabled {
+      cursor: wait;
+      opacity: 0.7;
+    }
+
+    .mqtt-connect-btn.is-connected {
+      background: var(--red-bg);
+      color: var(--red);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .mqtt-error-msg {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--red);
+      margin-top: 6px;
+      display: none;
+    }
+
+    /* ── Minimap ────────────────────────────────────────────────────────────  */
+    #minimap-container {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .minimap-footer {
+      padding: 4px 8px;
+      background: var(--bg2);
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .minimap-coords {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    .minimap-name {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    /* ── Topbar elements ────────────────────────────────────────────────────  */
+    .topbar-sep {
+      width: 1px;
+      height: 16px;
+      background: var(--line2);
+      margin: 0 12px;
+      flex-shrink: 0;
+    }
+
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .topbar-brand-name {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text0);
+    }
+
+    .topbar-plant-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .topbar-plant-label {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text2);
+    }
+
+    #plant-id-input {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      background: transparent;
+      border: none;
+      color: var(--text0);
+      width: 80px;
+      outline: none;
+    }
+
+    #plant-id-input:focus {
+      border-bottom: 1px solid var(--line2);
+    }
+
+    .topbar-source {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .topbar-source-text {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text1);
+    }
+
+    .topbar-tick {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text2);
+      flex-shrink: 0;
+    }
+
+    .topbar-spacer {
+      flex: 1;
+    }
+
+    /* Alert chip — opacity: 0 cuando no hay alertas (nunca display: none) */
+    #alert-chip {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: var(--red-bg);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: var(--red);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      flex-shrink: 0;
+    }
+
+    #alert-chip.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #alert-chip.is-warning {
+      background: var(--amber-bg);
+      border-color: rgba(245, 158, 11, 0.3);
+      color: var(--amber);
+    }
+
+    .topbar-btn {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text1);
+      background: transparent;
+      padding: 4px 8px;
+      border: 1px solid var(--line2);
+      border-radius: 4px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background-color 0.15s, color 0.15s;
+    }
+
+    .topbar-btn:hover {
+      background: var(--bg3);
+      color: var(--text0);
+    }
+
+    /* Live badge en panel header */
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .live-badge-text {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    .live-badge .live-dot {
+      background: var(--text2); /* gris hasta el primer tick */
+    }
+
+    .live-badge.is-live .live-dot {
+      background: var(--green);
+    }
+
+    .live-badge.is-live .live-badge-text {
+      color: var(--green);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+  <div id="topbar">
+    <!-- Brand -->
+    <div class="topbar-brand">
+      <span class="live-dot pulse" id="system-dot"></span>
+      <span class="topbar-brand-name">WTP Digital Twin</span>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Plant ID -->
+    <div class="topbar-plant-wrap">
+      <span class="topbar-plant-label">Plant</span>
+      <input id="plant-id-input" type="text" value="plant-01" autocomplete="off" spellcheck="false" />
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Estado de fuente de datos -->
+    <div class="topbar-source">
+      <span class="live-dot" id="source-dot" style="background: var(--amber);"></span>
+      <span class="topbar-source-text" id="source-text">Simulator</span>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Tick rate -->
+    <span class="topbar-tick">500ms tick</span>
+
+    <!-- Spacer -->
+    <div class="topbar-spacer"></div>
+
+    <!-- Alert chip — opacity: 0 cuando no hay alertas -->
+    <span id="alert-chip">0 alerts active</span>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Botones ghost -->
+    <button class="topbar-btn" id="btn-export">Export CSV</button>
+    <div style="width: 6px;"></div>
+    <button class="topbar-btn" id="btn-docs">Docs ↗</button>
+  </div>
+
+  <!-- ── Viewport 3D ─────────────────────────────────────────────────────── -->
+  <div id="viewport"></div>
+
+  <!-- ── Panel izquierdo — Telemetría ───────────────────────────────────── -->
+  <div id="panel-left">
+    <div class="panel-header">
+      <span class="panel-title">Telemetry</span>
+      <div class="live-badge" id="live-badge">
+        <span class="live-dot"></span>
+        <span class="live-badge-text">live</span>
+      </div>
+    </div>
+    <!-- Los sensor rows se generan en TelemetryPanel.js -->
+    <div id="telemetry-body" style="overflow-y: auto; flex: 1;"></div>
+  </div>
+
+  <!-- ── Panel derecho ───────────────────────────────────────────────────── -->
+  <div id="panel-right">
+
+    <!-- Alertas -->
+    <div class="sub-panel" id="panel-alerts">
+      <div class="panel-header">
+        <span class="panel-title">Alerts</span>
+        <span class="mqtt-value" id="alert-count" style="color: var(--text2);">—</span>
+      </div>
+      <div id="alerts-body">
+        <div class="alert-empty">No active alerts</div>
+      </div>
+    </div>
+
+    <!-- MQTT -->
+    <div class="sub-panel" id="panel-mqtt">
+      <div class="mqtt-body">
+        <div class="mqtt-row">
+          <span class="mqtt-label">Source</span>
+          <span class="mqtt-value" id="mqtt-source-val">● Simulator</span>
+        </div>
+        <div class="mqtt-row">
+          <span class="mqtt-label">Broker</span>
+          <span class="mqtt-value" id="mqtt-broker-val">broker.emqx.io</span>
+        </div>
+        <div class="mqtt-row">
+          <span class="mqtt-label">Plant ID</span>
+          <span class="mqtt-value" id="mqtt-plant-val">plant-01</span>
+        </div>
+        <button class="mqtt-connect-btn" id="mqtt-connect-btn">Connect real MQTT →</button>
+        <p class="mqtt-error-msg" id="mqtt-error-msg"></p>
+      </div>
+    </div>
+
+    <!-- Minimap -->
+    <div class="sub-panel" id="panel-minimap">
+      <div id="minimap-container"></div>
+      <div class="minimap-footer">
+        <span class="minimap-coords">41.1189, 1.2445</span>
+        <span class="minimap-name">Reus, ES</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Entry point -->
+  <script type="module" src="/src/main.js"></script>
+</body>
 </html>

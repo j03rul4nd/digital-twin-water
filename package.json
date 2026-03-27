@@ -10,5 +10,10 @@
   },
   "devDependencies": {
     "vite": "^8.0.1"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "mqtt": "^5.15.1",
+    "three": "^0.183.2"
   }
 }
