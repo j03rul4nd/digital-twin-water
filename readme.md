@@ -18,7 +18,7 @@ Designed to live exactly between the repos that are too simple (just Three.js wi
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-username/digital-twin-water.git
+git clone https://j03rul4nd.github.io/digital-twin-water/
 cd digital-twin-water
 npm install
 npm run dev
@@ -180,7 +180,7 @@ Key design decisions:
 
 ## Built by
 
-[Your Name](https://your-portfolio.com) · [LinkedIn](https://linkedin.com) · [Twitter](https://twitter.com)
+[Your Name](https://joelbenitez.dev) · [LinkedIn](https://linkedin.com) · [Twitter](https://twitter.com)
 
 ---
 

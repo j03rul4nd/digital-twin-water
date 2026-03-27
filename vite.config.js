@@ -2,28 +2,28 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   // Base path para GitHub Pages.
-  // Si el repo se llama "digital-twin-water", usar '/digital-twin-water/'.
-  // Para Vercel o localhost, '/' funciona siempre.
-  base: '/',
+  // El repo vive en j03rul4nd.github.io/digital-twin-water/
+  // Con base: '/' los assets fallan en producción (404 en JS/CSS).
+  // Con base: '/digital-twin-water/' funciona en GitHub Pages Y en local
+  // porque Vite dev server lo respeta también.
+  //
+  // Para Vercel o dominio propio: cambiar a base: '/'
+  base: '/digital-twin-water/',
 
   build: {
-    // Carpeta de salida del build estático
     outDir: 'dist',
-
-    // Three.js tiene módulos grandes — aumentar el límite del warning
-    // para no ver alertas falsas durante el build
+    // Three.js tiene módulos grandes — evitar warnings falsos en el build
     chunkSizeWarningLimit: 1500,
   },
 
   server: {
-    // Puerto fijo para desarrollo (evita que cambie si hay otro proceso)
     port: 5173,
-    open: true, // abre el navegador automáticamente al hacer npm run dev
+    open: true,
   },
 
   worker: {
-    // Necesario para que sensor.worker.js use 'import' de ES Modules.
-    // Sin esto, Vite trata el Worker como script clásico y los imports fallan.
+    // Necesario para que sensor.worker.js use import de ES Modules.
+    // Sin esto Vite trata el Worker como script clásico y los imports fallan.
     format: 'es',
   },
 });
