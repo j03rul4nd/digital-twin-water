@@ -3,7 +3,7 @@
 <!-- GIF del dashboard funcionando va aquí — capturar con Filter #1 en rojo (estado más visual) -->
 <!-- ![WTP Digital Twin demo](docs/demo.gif) -->
 ![WTP Digital Twin](docs/cover.png)
-**[→ Live Demo](https://your-deploy-url-here)** · Three.js · MQTT · No backend · No database · Runs entirely in the browser
+**[→ Live Demo](https://j03rul4nd.github.io/digital-twin-water/)** · Three.js · MQTT · No backend · No database · Runs entirely in the browser
 
 ---
 
@@ -181,7 +181,7 @@ Key design decisions:
 
 ## Built by
 
-[Joel Benitez](https://joelbenitez.dev) · [LinkedIn](https://linkedin.com) · [Twitter](https://twitter.com)
+[Joel Benitez](https://joelbenitez.dev) · [LinkedIn](https://www.linkedin.com/in/joel-benitez-iiot-industry/) · [Medium](https://medium.com/@jowwii)
 
 ---
 
