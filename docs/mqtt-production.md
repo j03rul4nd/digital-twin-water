@@ -13,7 +13,7 @@ Topic: wtp/plant/{plantId}/sensors
 Example: wtp/plant/plant-01/sensors
 ```
 
-`plantId` is configurable in the dashboard toolbar (default: `plant-01`). This allows multiple users of the starter kit to connect different plants to the same demo broker without topic collisions.
+`plantId` is configurable from the dashboard settings panel (default: `plant-01`). This allows multiple users of the starter kit to connect different plants to the same demo broker without topic collisions.
 
 ---
 
@@ -41,6 +41,23 @@ Example: wtp/plant/plant-01/sensors
 - `readings` — object with all sensor IDs as keys, numeric values
 
 You don't need to publish all 10 sensors in every message. Missing keys are ignored gracefully. But publishing all of them ensures the rule engine can evaluate correlation rules correctly.
+
+---
+
+## Configuring the broker from the dashboard
+
+No code editing required. Click **`⚙ Settings`** in the top bar and fill in:
+
+| Field | Example |
+|---|---|
+| Broker URL | `wss://your-cluster.hivemq.cloud:8884/mqtt` |
+| Username | `your-username` |
+| Password | `your-password` |
+| Plant ID | `plant-01` |
+
+Click **`Test & Connect →`** — the dashboard connects live and shows the result. If successful, the configuration is saved in `localStorage` and restored automatically on every page reload.
+
+> **Note:** The dashboard only supports `ws://` and `wss://` (WebSocket). For installations with mutual TLS (client certificates), you need an intermediate proxy — see the TLS section below.
 
 ---
 
@@ -114,6 +131,7 @@ client.connect("your-broker.com", 8884)
 | EMQX public | `ws://broker.emqx.io:8083/mqtt` | Free, no auth, shared |
 | EMQX public (TLS) | `wss://broker.emqx.io:8084/mqtt` | Free, no auth, shared |
 | Mosquitto (local) | `ws://localhost:9001/mqtt` | Requires WebSocket listener configured |
+| HiveMQ Cloud | `wss://your-cluster.s1.eu.hivemq.cloud:8884/mqtt` | Free tier available, auth required |
 | HiveMQ public | `wss://broker.hivemq.com:8884/mqtt` | Free, no auth, shared |
 
 For local Mosquitto, add this to `mosquitto.conf`:
@@ -122,20 +140,6 @@ For local Mosquitto, add this to `mosquitto.conf`:
 listener 9001
 protocol websockets
 ```
-
----
-
-## Changing the broker URL in the dashboard
-
-Edit `src/ui/MQTTPanel.js`:
-
-```js
-_buildBrokerUrl() {
-  return 'wss://your-broker.com:8084/mqtt';
-}
-```
-
-Or expose it as a configurable input in the panel — the architecture supports it, the input just isn't in the MVP UI.
 
 ---
 
@@ -169,10 +173,9 @@ client.on('message', (topic, message) => {
   if (sensorId) {
     readings[sensorId] = parseFloat(message.toString());
   }
-
-  // Publish a complete snapshot every 500ms
 });
 
+// Publish a complete snapshot every 500ms
 setInterval(() => {
   if (Object.keys(readings).length > 0) {
     client.publish('wtp/plant/plant-01/sensors', JSON.stringify({
