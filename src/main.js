@@ -41,6 +41,7 @@ import MiniMap         from './ui/MiniMap.js';
 import MQTTPanel       from './ui/MQTTPanel.js';
 
 import DataExporter    from './utils/DataExporter.js';
+import ConfigModal     from './ui/ConfigModal.js';
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ async function init() {
   MQTTPanel.init();
   MiniMap.init();
   DataExporter.init();
+  ConfigModal.init();
 
   // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe
   // (en Fase 3 este bloque estaba comentado — aquí se activa)

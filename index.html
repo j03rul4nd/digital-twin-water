@@ -568,6 +568,199 @@
     .live-badge.is-live .live-badge-text {
       color: var(--green);
     }
+
+    /* ══ CONFIG MODAL ════════════════════════════════════════════════════════ */
+
+    #config-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+
+    #config-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #config-modal {
+      background: var(--bg1);
+      border: 1px solid var(--line2);
+      border-radius: 8px;
+      width: 440px;
+      max-width: calc(100vw - 32px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transform: translateY(6px);
+      transition: transform 0.15s ease;
+    }
+
+    #config-overlay.visible #config-modal {
+      transform: translateY(0);
+    }
+
+    #cfg-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--line);
+    }
+
+    #cfg-title {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text0);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    #cfg-close {
+      background: transparent;
+      border: none;
+      color: var(--text2);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    #cfg-close:hover {
+      color: var(--text0);
+      background: var(--bg3);
+    }
+
+    #cfg-body {
+      padding: 20px 16px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .cfg-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .cfg-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .cfg-label {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .cfg-input {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text0);
+      background: var(--bg3);
+      border: 1px solid var(--line2);
+      border-radius: 4px;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .cfg-input:focus {
+      border-color: var(--blue);
+    }
+
+    .cfg-input::placeholder {
+      color: var(--text2);
+    }
+
+    .cfg-hint {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    #cfg-status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 20px;
+      padding: 0 2px;
+    }
+
+    #cfg-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: none;
+    }
+
+    #cfg-status-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+    }
+
+    #cfg-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 16px 14px;
+      border-top: 1px solid var(--line);
+      margin-top: 6px;
+    }
+
+    .cfg-btn-ghost {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text1);
+      background: transparent;
+      border: 1px solid var(--line2);
+      border-radius: 4px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .cfg-btn-ghost:hover {
+      background: var(--bg3);
+      color: var(--text0);
+    }
+
+    .cfg-btn-primary {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--blue);
+      background: var(--blue-bg);
+      border: 1px solid rgba(59,130,246,0.3);
+      border-radius: 4px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .cfg-btn-primary:hover:not(:disabled) {
+      opacity: 0.8;
+    }
+
+    .cfg-btn-primary:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
   </style>
 </head>
 <body>
@@ -612,6 +805,8 @@
     <!-- Botones ghost -->
     <button class="topbar-btn" id="btn-export">Export CSV</button>
     <div style="width: 6px;"></div>
+    <button class="topbar-btn" id="btn-settings" title="MQTT Configuration">⚙ Settings</button>
+    <div style="width: 6px;"></div>
     <button class="topbar-btn" id="btn-docs">Docs ↗</button>
   </div>
 
@@ -654,7 +849,7 @@
         </div>
         <div class="mqtt-row">
           <span class="mqtt-label">Broker</span>
-          <span class="mqtt-value" id="mqtt-broker-val">broker.emqx.io</span>
+          <span class="mqtt-value" id="mqtt-broker-val">hivemq.cloud</span>
         </div>
         <div class="mqtt-row">
           <span class="mqtt-label">Plant ID</span>

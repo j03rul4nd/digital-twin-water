@@ -3,11 +3,13 @@
 <!-- GIF del dashboard funcionando va aquí — capturar con Filter #1 en rojo (estado más visual) -->
 <!-- ![WTP Digital Twin demo](docs/demo.gif) -->
 ![WTP Digital Twin](docs/cover.png)
+
 **[→ Live Demo](https://j03rul4nd.github.io/digital-twin-water/)** · Three.js · MQTT · No backend · No database · Runs entirely in the browser
 
 ---
 
 ![WTP Digital Twin](docs/cover_2.png)
+
 ## What is this
 
 A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, and a rule engine that detects process anomalies. No Docker, no server, no auth.
@@ -19,7 +21,7 @@ Designed to live exactly between the repos that are too simple (just Three.js wi
 ## Quick Start
 
 ```bash
-git clone https://j03rul4nd.github.io/digital-twin-water/
+git clone https://github.com/j03rul4nd/digital-twin-water.git
 cd digital-twin-water
 npm install
 npm run dev
@@ -31,9 +33,16 @@ Open [http://localhost:5173](http://localhost:5173) — the simulator starts imm
 
 ## Connect your real MQTT broker
 
-The simulator runs out of the box. When you're ready to connect real data:
+The simulator runs out of the box. When you're ready to connect real data, no code editing required:
 
-**1. Click "Connect real MQTT →"** in the dashboard panel — it connects to `broker.emqx.io` by default for testing.
+**1. Click `⚙ Settings`** in the top bar — a configuration panel opens.
+
+**2. Fill in your broker details:**
+- **Broker URL** — e.g. `wss://your-cluster.hivemq.cloud:8884/mqtt`
+- **Username** and **Password**
+- **Plant ID** — used to build the topic `wtp/plant/{plantId}/sensors`
+
+**3. Click `Test & Connect →`** — the dashboard tests the connection live. If it succeeds, the config is saved automatically and restored on every reload. No code changes needed.
 
 **2. Publish your sensor data** to the topic `wtp/plant/{plantId}/sensors` in this format:
 
@@ -52,14 +61,6 @@ The simulator runs out of the box. When you're ready to connect real data:
     "tank_level": 67.0,
     "outlet_pressure": 4.2
   }
-}
-```
-
-**3. To use your own broker**, edit the URL in `src/ui/MQTTPanel.js`:
-
-```js
-_buildBrokerUrl() {
-  return 'ws://your-broker:8083/mqtt'; // or wss:// for secure
 }
 ```
 
@@ -129,6 +130,7 @@ main.js → SensorState.update()        ← single source of truth
 
 MQTTAdapter  (when user connects real broker)
   │  same payload shape as Worker
+  │  config stored in localStorage — no code changes needed
   │  main.js pauses Worker on MQTT_CONNECTED
   └──▶ same SensorState → same EventBus → zero changes downstream
 ```
@@ -140,6 +142,7 @@ Key design decisions:
 - **Observable adapter** — `MQTTAdapter` emits 4 lifecycle events. Swap in any data source without touching the rest of the system.
 - **Deterministic rule engine** — zero download, zero latency. Rules are plain JS objects with a `condition()` function.
 - **Color as signal** — ISA-101 compliant. `--green`/`--amber`/`--red` are exclusively for process state. When something is colored, it means something.
+- **UI-configurable broker** — broker URL, credentials and plant ID are set from the `⚙ Settings` panel and persisted in `localStorage`. No code editing required.
 
 ---
 
