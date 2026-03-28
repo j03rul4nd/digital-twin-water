@@ -44,6 +44,9 @@ import DataExporter    from './utils/DataExporter.js';
 import ConfigModal     from './ui/ConfigModal.js';
 import SensorDetailModal from './ui/SensorDetailModal.js';
 import IncidentPanel    from './ui/IncidentPanel.js';
+import WebhookPanel     from './ui/WebhookPanel.js';
+import PayloadMapperPanel from './ui/PayloadMapperPanel.js';
+import WebhookManager   from './utils/WebhookManager.js';
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -79,6 +82,9 @@ async function init() {
   ConfigModal.init();
   SensorDetailModal.init();
   IncidentPanel.init();
+  WebhookManager.init();
+  WebhookPanel.init();
+  PayloadMapperPanel.init();
 
   // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe
   // (en Fase 3 este bloque estaba comentado — aquí se activa)

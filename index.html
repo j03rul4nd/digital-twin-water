@@ -1309,6 +1309,231 @@
       background: var(--bg3);
       color: var(--text0);
     }
+
+    /* ══ WEBHOOK PANEL ═══════════════════════════════════════════════════════ */
+
+    #webhook-overlay, #mapper-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    #webhook-overlay.visible, #mapper-overlay.visible {
+      opacity: 1; pointer-events: auto;
+    }
+
+    #webhook-modal, #mapper-modal {
+      background: var(--bg1);
+      border: 1px solid var(--line2);
+      border-radius: 8px;
+      width: 480px;
+      max-width: calc(100vw - 32px);
+      max-height: 80vh;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      transform: translateY(6px);
+      transition: transform 0.15s ease;
+    }
+    #webhook-overlay.visible #webhook-modal,
+    #mapper-overlay.visible  #mapper-modal {
+      transform: translateY(0);
+    }
+
+    #wh-header, #mapper-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+    #wh-title, #mapper-title {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 11px; font-weight: 500;
+      color: var(--text0);
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    #wh-close, #mapper-close {
+      background: transparent; border: none;
+      color: var(--text2); cursor: pointer; font-size: 12px;
+      padding: 2px 6px; border-radius: 3px;
+      transition: color 0.15s, background 0.15s;
+    }
+    #wh-close:hover, #mapper-close:hover { color: var(--text0); background: var(--bg3); }
+
+    #wh-body, #mapper-body {
+      overflow-y: auto; padding: 16px; flex: 1;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+
+    .wh-empty {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px; color: var(--text2);
+      text-align: center; padding: 20px 0;
+    }
+
+    /* Webhook items */
+    .wh-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 6px; gap: 10px;
+    }
+    .wh-item-left  { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+    .wh-item-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .wh-item-info  { min-width: 0; }
+    .wh-item-name  { font-family: 'IBM Plex Sans', sans-serif; font-size: 10px; font-weight: 500; color: var(--text0); }
+    .wh-item-url   { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wh-item-events { font-family: 'IBM Plex Sans', sans-serif; font-size: 9px; color: var(--text2); margin-top: 2px; }
+
+    .wh-result-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .wh-result-dot.ok   { background: var(--green); }
+    .wh-result-dot.fail { background: var(--red); }
+
+    /* Toggle switch */
+    .wh-toggle { position: relative; display: inline-block; width: 28px; height: 16px; flex-shrink: 0; }
+    .wh-toggle input { opacity: 0; width: 0; height: 0; }
+    .wh-toggle-track {
+      position: absolute; inset: 0; cursor: pointer;
+      background: var(--bg3); border-radius: 8px;
+      border: 1px solid var(--line2);
+      transition: background 0.2s;
+    }
+    .wh-toggle-track::after {
+      content: ''; position: absolute;
+      left: 2px; top: 50%; transform: translateY(-50%);
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--text2); transition: left 0.2s, background 0.2s;
+    }
+    .wh-toggle input:checked + .wh-toggle-track { background: var(--blue-bg); border-color: rgba(59,130,246,0.3); }
+    .wh-toggle input:checked + .wh-toggle-track::after { left: 14px; background: var(--blue); }
+
+    /* Shared form styles */
+    .wh-input, .mapper-input {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--text0); background: var(--bg3);
+      border: 1px solid var(--line2); border-radius: 4px;
+      padding: 7px 10px; outline: none; width: 100%;
+      transition: border-color 0.15s;
+    }
+    .wh-input:focus, .mapper-input:focus { border-color: var(--blue); }
+    .wh-input::placeholder, .mapper-input::placeholder { color: var(--text2); }
+
+    .wh-label, .mapper-section-title {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px; color: var(--text2);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 4px; display: block;
+    }
+    .mapper-optional { text-transform: none; font-size: 9px; }
+
+    .wh-hint, .mapper-hint {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px; color: var(--text2); margin-top: 3px; display: block;
+    }
+    .wh-link, .mapper-link { color: var(--blue); text-decoration: none; }
+
+    .wh-form-field, .mapper-section { display: flex; flex-direction: column; gap: 4px; }
+
+    .wh-checkboxes { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+    .wh-check {
+      display: flex; align-items: center; gap: 8px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px; color: var(--text1); cursor: pointer;
+    }
+    .wh-check input { cursor: pointer; accent-color: var(--blue); }
+
+    .wh-form-actions, #mapper-footer {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: 8px; padding: 12px 16px;
+      border-top: 1px solid var(--line); flex-shrink: 0;
+    }
+
+    #wh-footer { padding: 10px 16px; border-top: 1px solid var(--line); flex-shrink: 0; }
+
+    #wh-form-status {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; margin-top: 2px;
+    }
+
+    .wh-add-btn {
+      font-family: 'IBM Plex Sans', sans-serif; font-size: 10px;
+      color: var(--blue); background: var(--blue-bg);
+      border: 1px solid rgba(59,130,246,0.3); border-radius: 4px;
+      padding: 7px 14px; cursor: pointer; width: 100%;
+      transition: opacity 0.15s;
+    }
+    .wh-add-btn:hover { opacity: 0.8; }
+
+    .wh-btn-ghost, .mapper-btn-ghost {
+      font-family: 'IBM Plex Sans', sans-serif; font-size: 10px;
+      color: var(--text1); background: transparent;
+      border: 1px solid var(--line2); border-radius: 4px;
+      padding: 6px 14px; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .wh-btn-ghost:hover, .mapper-btn-ghost:hover { background: var(--bg3); color: var(--text0); }
+
+    .wh-btn-primary, .mapper-btn-primary {
+      font-family: 'IBM Plex Sans', sans-serif; font-size: 10px;
+      color: var(--blue); background: var(--blue-bg);
+      border: 1px solid rgba(59,130,246,0.3); border-radius: 4px;
+      padding: 6px 14px; cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .wh-btn-primary:hover, .mapper-btn-primary:hover { opacity: 0.8; }
+
+    .wh-btn-icon {
+      font-size: 11px; color: var(--text2); background: transparent;
+      border: none; cursor: pointer; padding: 3px 5px; border-radius: 3px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .wh-btn-icon:hover { color: var(--text0); background: var(--bg3); }
+    .wh-btn-delete:hover { color: var(--red); }
+
+    /* ══ PAYLOAD MAPPER PANEL ════════════════════════════════════════════════ */
+
+    .mapper-modes { display: flex; flex-direction: column; gap: 6px; }
+    .mapper-mode-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+    .mapper-mode-option input { margin-top: 3px; accent-color: var(--blue); flex-shrink: 0; }
+    .mapper-mode-card { display: flex; flex-direction: column; gap: 2px; }
+    .mapper-mode-name { font-family: 'IBM Plex Sans', sans-serif; font-size: 10px; font-weight: 500; color: var(--text0); }
+    .mapper-mode-desc { font-family: 'IBM Plex Sans', sans-serif; font-size: 9px; color: var(--text2); }
+
+    .mapper-textarea {
+      resize: vertical; min-height: 80px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    }
+
+    .mapper-detected-fields {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+    }
+    .mapper-code {
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      background: var(--bg3); border: 1px solid var(--line2);
+      border-radius: 3px; padding: 2px 6px; color: var(--text1);
+    }
+
+    .mapper-mapping-row {
+      display: grid;
+      grid-template-columns: 1fr 16px 1fr 1fr 24px;
+      align-items: center; gap: 6px; margin-bottom: 6px;
+    }
+    .mapper-arrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--text2); text-align: center;
+    }
+
+    #mapper-mappings-list { margin-bottom: 6px; }
+
+    #mapper-analyze-result {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px; padding: 8px;
+      background: var(--bg2); border-radius: 4px;
+      border: 1px solid var(--line); margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -1352,6 +1577,10 @@
 
     <!-- Botones ghost -->
     <button class="topbar-btn" id="btn-export">Export CSV</button>
+    <div style="width: 6px;"></div>
+    <button class="topbar-btn" id="btn-webhooks">⚡ Webhooks</button>
+    <div style="width: 6px;"></div>
+    <button class="topbar-btn" id="btn-payload-mapper">⇄ Payload</button>
     <div style="width: 6px;"></div>
     <button class="topbar-btn" id="btn-docs">Docs ↗</button>
   </div>
