@@ -1,90 +1,67 @@
 /**
- * MQTTPanel.js — Panel MQTT del dashboard (sub-panel derecho central).
+ * MQTTPanel.js — Panel MQTT del sidebar.
  *
- * Lee la configuración de localStorage via ConfigModal.loadConfig().
- * Ya no tiene credenciales hardcodeadas — el usuario las configura
- * desde el modal de settings (botón ⚙ en el topbar).
+ * Ahora es solo un indicador de estado — no gestiona la conexión.
+ * Todo el flujo de conectar/desconectar/configurar está en ConfigModal.
  *
- * Estados del botón:
- *   idle        → "Connect real MQTT →"
- *   connecting  → "Connecting…" + disabled
- *   connected   → "Disconnect" + fondo rojo
- *   error       → "Retry →" + mensaje de error
+ * El botón "Configure & Connect →" abre ConfigModal directamente.
+ * El usuario siempre sabe dónde está y qué hacer a continuación.
  */
 
-import EventBus          from '../core/EventBus.js';
-import { EVENTS }        from '../core/events.js';
-import MQTTAdapter       from '../sensors/MQTTAdapter.js';
-import { loadConfig }    from './ConfigModal.js';
+import EventBus       from '../core/EventBus.js';
+import { EVENTS }     from '../core/events.js';
+import { loadConfig } from './ConfigModal.js';
+import ConfigModal    from './ConfigModal.js';
 
 const MQTTPanel = {
   _handlers: [],
 
   init() {
-    const btn      = document.getElementById('mqtt-connect-btn');
-    const errorMsg = document.getElementById('mqtt-error-msg');
-
-    if (!btn) return;
-
-    // Rellenar panel con la config guardada al arrancar
+    // Rellenar el panel con la config guardada al arrancar
     this._refreshDisplay();
 
-    // ── Clic en el botón ──────────────────────────────────────────────────
-    btn.addEventListener('click', async () => {
-      if (MQTTAdapter.isConnected()) {
-        await MQTTAdapter.disconnect();
-      } else {
-        // Leer config actualizada de localStorage en el momento de conectar
-        const cfg = loadConfig();
-        if (!cfg.brokerUrl) {
-          // Sin config — abrir el modal directamente
-          document.getElementById('btn-settings')?.click();
-          return;
-        }
-        MQTTAdapter.connect({
-          brokerUrl: cfg.brokerUrl,
-          plantId:   cfg.plantId,
-          username:  cfg.username,
-          password:  cfg.password,
-        });
-      }
-    });
+    // ── Botón principal — siempre abre el ConfigModal ─────────────────────
+    const btn = document.getElementById('mqtt-connect-btn');
+    if (btn) {
+      btn.addEventListener('click', () => ConfigModal.open());
+    }
 
-    // ── Eventos MQTT ──────────────────────────────────────────────────────
+    // ── Actualizar el indicador de estado según eventos MQTT ──────────────
     const onConnecting = ({ brokerUrl }) => {
-      btn.textContent = 'Connecting…';
-      btn.disabled    = true;
-      btn.classList.remove('is-connected');
-      if (errorMsg) errorMsg.style.display = 'none';
+      this._setSource('connecting', 'Connecting…');
       const brokerVal = document.getElementById('mqtt-broker-val');
-      if (brokerVal) brokerVal.textContent = this._brokerHost(brokerUrl);
+      if (brokerVal) brokerVal.textContent = this._host(brokerUrl);
     };
 
-    const onConnected = () => {
-      btn.textContent = 'Disconnect';
-      btn.disabled    = false;
-      btn.classList.add('is-connected');
-      if (errorMsg) errorMsg.style.display = 'none';
-      const sourceVal = document.getElementById('mqtt-source-val');
-      if (sourceVal) { sourceVal.textContent = '● MQTT'; sourceVal.style.color = 'var(--green)'; }
+    const onConnected = ({ brokerUrl }) => {
+      this._setSource('connected', '● MQTT Live');
+      const brokerVal = document.getElementById('mqtt-broker-val');
+      if (brokerVal) brokerVal.textContent = this._host(brokerUrl);
+      // Cambiar el botón del panel a "Disconnect" visual
+      const btn = document.getElementById('mqtt-connect-btn');
+      if (btn) {
+        btn.textContent = 'Connected — click to manage →';
+        btn.classList.add('is-connected');
+      }
     };
 
-    const onError = ({ reason }) => {
-      btn.textContent = 'Retry →';
-      btn.disabled    = false;
-      btn.classList.remove('is-connected');
-      if (errorMsg) { errorMsg.textContent = reason ?? 'Connection failed'; errorMsg.style.display = 'block'; }
-      const sourceVal = document.getElementById('mqtt-source-val');
-      if (sourceVal) { sourceVal.textContent = '● Simulator'; sourceVal.style.color = ''; }
+    const onError = () => {
+      this._setSource('simulator', '● Simulator');
+      const btn = document.getElementById('mqtt-connect-btn');
+      if (btn) {
+        btn.textContent = 'Configure & Connect →';
+        btn.classList.remove('is-connected');
+      }
     };
 
     const onDisconnected = () => {
-      btn.textContent = 'Connect real MQTT →';
-      btn.disabled    = false;
-      btn.classList.remove('is-connected');
-      if (errorMsg) errorMsg.style.display = 'none';
-      const sourceVal = document.getElementById('mqtt-source-val');
-      if (sourceVal) { sourceVal.textContent = '● Simulator'; sourceVal.style.color = ''; }
+      this._setSource('simulator', '● Simulator');
+      this._refreshDisplay();
+      const btn = document.getElementById('mqtt-connect-btn');
+      if (btn) {
+        btn.textContent = 'Configure & Connect →';
+        btn.classList.remove('is-connected');
+      }
     };
 
     EventBus.on(EVENTS.MQTT_CONNECTING,   onConnecting);
@@ -100,24 +77,32 @@ const MQTTPanel = {
     ];
   },
 
-  /**
-   * Rellena el panel con los valores actuales de localStorage.
-   * Llamar tras guardar nueva config desde ConfigModal.
-   */
+  _setSource(state, text) {
+    const sourceVal = document.getElementById('mqtt-source-val');
+    if (!sourceVal) return;
+    const colors = {
+      connecting: 'var(--blue)',
+      connected:  'var(--green)',
+      simulator:  'var(--text1)',
+    };
+    sourceVal.textContent = text;
+    sourceVal.style.color = colors[state] ?? 'var(--text1)';
+  },
+
   _refreshDisplay() {
     const cfg = loadConfig();
     const brokerVal = document.getElementById('mqtt-broker-val');
     const plantVal  = document.getElementById('mqtt-plant-val');
-    if (brokerVal) brokerVal.textContent = cfg.brokerUrl ? this._brokerHost(cfg.brokerUrl) : '—';
-    if (plantVal)  plantVal.textContent  = cfg.plantId   ?? 'plant-01';
+    if (brokerVal) brokerVal.textContent = cfg.brokerUrl ? this._host(cfg.brokerUrl) : '—';
+    if (plantVal)  plantVal.textContent  = cfg.plantId   || 'plant-01';
   },
 
-  _brokerHost(url) {
+  _host(url) {
     try { return new URL(url).hostname; } catch { return url; }
   },
 
   destroy() {
-    this._handlers.forEach(([event, handler]) => EventBus.off(event, handler));
+    this._handlers.forEach(([e, fn]) => EventBus.off(e, fn));
     this._handlers = [];
   },
 };

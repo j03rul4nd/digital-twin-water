@@ -1,136 +1,227 @@
 /**
- * AlertPanel.js — Panel de alertas activas (panel derecho, sub-panel superior).
+ * AlertPanel.js — Panel de alertas con historial.
  *
- * Escucha EVENTS.RULE_TRIGGERED.
- * En init() llama a RuleEngine.getActiveAlerts() para recuperar alertas
- * existentes antes del primer evento — necesario si el panel se reinicia.
+ * Dos secciones:
+ *   Active  — alertas que siguen activas ahora mismo
+ *   History — alertas que se resolvieron (últimas MAX_HISTORY)
  *
- * Orden: danger primero, warning después.
- * Dentro de cada severidad, por timestamp descendente (más reciente arriba).
+ * Las alertas resueltas NO desaparecen — pasan a History con:
+ *   - timestamp de cuándo se activaron
+ *   - cuánto tiempo estuvieron activas ("was active for 45s")
+ *   - acento gris para distinguirlas visualmente de las activas
  *
- * Timestamps relativos actualizados cada 30s via setInterval.
- *
- * Resolución de alertas: opacity: 0 → remove() a 200ms.
+ * El usuario siempre puede ver qué pasó, cuándo y cuánto duró.
  */
 
-import EventBus from '../core/EventBus.js';
-import { EVENTS } from '../core/events.js';
+import EventBus    from '../core/EventBus.js';
+import { EVENTS }  from '../core/events.js';
+import RuleEngine  from '../sensors/RuleEngine.js';
+
+const MAX_HISTORY = 20;
 
 const AlertPanel = {
-  /** @type {Function} */
-  _handler: null,
-
-  /** @type {number | null} — ID del setInterval de timestamps */
+  _handler:        null,
   _timestampTimer: null,
 
-  /**
-   * Inicializa el panel.
-   * RuleEngine se importa dinámicamente para evitar dependencia circular
-   * entre fases — en Fase 3 el RuleEngine aún no existe, se añade en Fase 4.
-   * Cuando RuleEngine exista, descomentar el bloque de recuperación.
-   *
-   * Llamar en el paso 4 de init() en main.js.
-   */
-  init() {
-    // ── Recuperar alertas activas existentes (cuando RuleEngine exista en Fase 4) ──
-    // import('../sensors/RuleEngine.js').then(({ default: RuleEngine }) => {
-    //   RuleEngine.getActiveAlerts()
-    //     .sort(this._sortAlerts)
-    //     .forEach(alert => this._renderAlert(alert));
-    //   this._updateEmptyState();
-    //   this._updateCounter();
-    // });
+  /** @type {Map<string, number>} alertId → timestamp de activación */
+  _activeSince: new Map(),
 
-    // Suscribir al EventBus
+  /** @type {Array} historial en memoria (para reconstruir si hace falta) */
+  _history: [],
+
+  init() {
+    this._buildDOM();
+
+    // Recuperar alertas activas existentes al arrancar
+    RuleEngine.getActiveAlerts()
+      .sort(this._sortAlerts)
+      .forEach(alert => {
+        this._activeSince.set(alert.id, alert.timestamp);
+        this._renderActive(alert);
+      });
+
+    this._updateActiveEmpty();
+    this._updateCounters();
+
+    // Suscribir
     this._handler = (alert) => this._handleAlert(alert);
     EventBus.on(EVENTS.RULE_TRIGGERED, this._handler);
 
-    // Timer de timestamps relativos — actualiza cada 30s
-    this._timestampTimer = setInterval(() => {
-      this._refreshTimestamps();
-    }, 30_000);
+    // Actualizar timestamps cada 10s (más frecuente que antes para alertas cortas)
+    this._timestampTimer = setInterval(() => this._refreshTimestamps(), 10_000);
   },
 
-  /**
-   * Gestiona una alerta entrante.
-   * active: true  → renderizar (si no existe ya)
-   * active: false → resolver con fade out
-   * @param {{ id, severity, sensorIds, message, timestamp, active }} alert
-   */
+  // ─── DOM inicial ─────────────────────────────────────────────────────────────
+
+  _buildDOM() {
+    const panel = document.getElementById('panel-alerts');
+    if (!panel) return;
+
+    // Reemplazar el body estático por la estructura de dos secciones
+    const existingBody = document.getElementById('alerts-body');
+    if (existingBody) existingBody.remove();
+
+    panel.insertAdjacentHTML('beforeend', `
+      <div id="alerts-active-section">
+        <div id="alerts-body"></div>
+      </div>
+
+      <div id="alerts-history-section" style="display:none;">
+        <div class="alerts-section-header">
+          <span class="alerts-section-title">History</span>
+          <button class="alerts-clear-btn" id="alerts-clear-btn">Clear</button>
+        </div>
+        <div id="alerts-history-body"></div>
+      </div>
+    `);
+
+    document.getElementById('alerts-clear-btn')?.addEventListener('click', () => {
+      this._clearHistory();
+    });
+  },
+
+  // ─── Gestión de alertas entrantes ────────────────────────────────────────────
+
   _handleAlert(alert) {
     if (alert.active) {
-      // Deduplicar — no renderizar si ya existe
-      if (!this._getAlertEl(alert.id)) {
-        this._renderAlert(alert);
-        this._updateEmptyState();
-        this._updateCounter();
+      if (!this._getActiveEl(alert.id)) {
+        this._activeSince.set(alert.id, alert.timestamp);
+        this._renderActive(alert);
+        this._updateActiveEmpty();
+        this._updateCounters();
       }
     } else {
-      this._resolveAlert(alert.id);
+      this._resolveAlert(alert);
     }
   },
 
-  /**
-   * Crea y añade el elemento DOM de una alerta.
-   * Danger siempre antes que el primer warning existente.
-   * @param {{ id, severity, sensorIds, message, timestamp }} alert
-   */
-  _renderAlert(alert) {
+  // ─── Render alerta activa ────────────────────────────────────────────────────
+
+  _renderActive(alert) {
     const body = document.getElementById('alerts-body');
     if (!body) return;
 
     const item = document.createElement('div');
-    item.className = 'alert-item';
+    item.className       = 'alert-item';
     item.dataset.alertId = alert.id;
-    item.dataset.severity = alert.severity;
+    item.dataset.severity  = alert.severity;
     item.dataset.timestamp = alert.timestamp;
 
     const accentColor = alert.severity === 'danger' ? 'var(--red)' : 'var(--amber)';
 
     item.innerHTML = `
       <div class="alert-accent" style="background: ${accentColor};"></div>
+      <div class="alert-badge alert-badge--${alert.severity}">${alert.severity.toUpperCase()}</div>
       <div class="alert-sensors">${alert.sensorIds.join(' · ')}</div>
       <div class="alert-message">${alert.message}</div>
-      <div class="alert-time" data-timestamp="${alert.timestamp}">${this._relativeTime(alert.timestamp)}</div>
+      <div class="alert-time" data-timestamp="${alert.timestamp}">
+        ${this._relativeTime(alert.timestamp)}
+      </div>
     `;
 
-    // Insertar: danger antes del primer warning
+    // Danger antes del primer warning
     if (alert.severity === 'danger') {
       const firstWarning = body.querySelector('[data-severity="warning"]');
-      if (firstWarning) {
-        body.insertBefore(item, firstWarning);
-      } else {
-        body.appendChild(item);
-      }
-    } else {
-      body.appendChild(item);
+      if (firstWarning) { body.insertBefore(item, firstWarning); return; }
     }
+    body.appendChild(item);
 
-    // Quitar el estado vacío si existía
     const empty = body.querySelector('.alert-empty');
     if (empty) empty.remove();
   },
 
-  /**
-   * Resuelve una alerta con fade out y posterior eliminación del DOM.
-   * @param {string} alertId
-   */
-  _resolveAlert(alertId) {
-    const el = this._getAlertEl(alertId);
-    if (!el) return;
+  // ─── Resolver alerta → mover a History ──────────────────────────────────────
 
-    el.style.opacity = '0';
-    setTimeout(() => {
-      el.remove();
-      this._updateEmptyState();
-      this._updateCounter();
-    }, 200);
+  _resolveAlert(alert) {
+    const el = this._getActiveEl(alert.id);
+    const activatedAt = this._activeSince.get(alert.id) ?? alert.timestamp;
+    const duration    = Math.floor((alert.timestamp - activatedAt) / 1000);
+
+    this._activeSince.delete(alert.id);
+
+    // Fade out del elemento activo
+    if (el) {
+      el.style.transition = 'opacity 0.3s ease';
+      el.style.opacity    = '0';
+      setTimeout(() => {
+        el.remove();
+        this._updateActiveEmpty();
+        this._updateCounters();
+      }, 300);
+    }
+
+    // Añadir al historial
+    this._addToHistory({ ...alert, activatedAt, duration });
   },
 
-  /**
-   * Muestra el estado vacío si no hay alertas activas.
-   */
-  _updateEmptyState() {
+  // ─── Historial ───────────────────────────────────────────────────────────────
+
+  _addToHistory(resolvedAlert) {
+    this._history.unshift(resolvedAlert);
+    if (this._history.length > MAX_HISTORY) this._history.pop();
+
+    this._renderHistoryItem(resolvedAlert, true); // true = prepend
+    this._trimHistoryDOM();
+    this._showHistorySection(true);
+    this._updateCounters();
+  },
+
+  _renderHistoryItem(alert, prepend = false) {
+    const body = document.getElementById('alerts-history-body');
+    if (!body) return;
+
+    const item = document.createElement('div');
+    item.className = 'alert-item alert-item--resolved';
+    item.dataset.historyId = alert.id;
+
+    const durationText = this._formatDuration(alert.duration);
+    const accentColor  = alert.severity === 'danger' ? 'var(--red)' : 'var(--amber)';
+
+    item.innerHTML = `
+      <div class="alert-accent alert-accent--resolved" style="background: ${accentColor};"></div>
+      <div class="alert-resolved-row">
+        <span class="alert-badge alert-badge--resolved">${alert.severity.toUpperCase()}</span>
+        <span class="alert-resolved-duration">active ${durationText}</span>
+      </div>
+      <div class="alert-sensors">${alert.sensorIds.join(' · ')}</div>
+      <div class="alert-message alert-message--resolved">${alert.message}</div>
+      <div class="alert-time" data-timestamp="${alert.timestamp}">
+        resolved ${this._relativeTime(alert.timestamp)}
+      </div>
+    `;
+
+    if (prepend && body.firstChild) {
+      body.insertBefore(item, body.firstChild);
+    } else {
+      body.appendChild(item);
+    }
+  },
+
+  _trimHistoryDOM() {
+    const body = document.getElementById('alerts-history-body');
+    if (!body) return;
+    const items = body.querySelectorAll('.alert-item--resolved');
+    if (items.length > MAX_HISTORY) {
+      for (let i = MAX_HISTORY; i < items.length; i++) items[i].remove();
+    }
+  },
+
+  _clearHistory() {
+    this._history = [];
+    const body = document.getElementById('alerts-history-body');
+    if (body) body.innerHTML = '';
+    this._showHistorySection(false);
+    this._updateCounters();
+  },
+
+  _showHistorySection(show) {
+    const section = document.getElementById('alerts-history-section');
+    if (section) section.style.display = show && this._history.length > 0 ? 'block' : 'none';
+  },
+
+  // ─── Helpers de UI ───────────────────────────────────────────────────────────
+
+  _updateActiveEmpty() {
     const body = document.getElementById('alerts-body');
     if (!body) return;
 
@@ -139,70 +230,68 @@ const AlertPanel = {
 
     if (!hasAlerts && !hasEmpty) {
       const empty = document.createElement('div');
-      empty.className = 'alert-empty';
+      empty.className   = 'alert-empty';
       empty.textContent = 'No active alerts';
       body.appendChild(empty);
+    } else if (hasAlerts && hasEmpty) {
+      hasEmpty.remove();
     }
   },
 
-  /**
-   * Actualiza el contador de alertas en el panel header.
-   */
-  _updateCounter() {
-    const body = document.getElementById('alerts-body');
+  _updateCounters() {
+    const body    = document.getElementById('alerts-body');
     const counter = document.getElementById('alert-count');
     if (!body || !counter) return;
 
-    const count = body.querySelectorAll('.alert-item').length;
-    counter.textContent = count > 0 ? `${count} active` : '—';
+    const activeCount  = body.querySelectorAll('.alert-item:not(.alert-item--resolved)').length;
+    const historyCount = this._history.length;
+
+    if (activeCount > 0) {
+      counter.textContent = `${activeCount} active`;
+      counter.style.color = 'var(--red)';
+    } else if (historyCount > 0) {
+      counter.textContent = `${historyCount} in history`;
+      counter.style.color = 'var(--text2)';
+    } else {
+      counter.textContent = '—';
+      counter.style.color = 'var(--text2)';
+    }
   },
 
-  /**
-   * Actualiza todos los timestamps relativos visibles.
-   * Llamado por el setInterval cada 30s.
-   */
   _refreshTimestamps() {
-    const body = document.getElementById('alerts-body');
-    if (!body) return;
-
-    body.querySelectorAll('[data-timestamp]').forEach(el => {
-      const ts = parseInt(el.dataset.timestamp, 10);
-      el.textContent = this._relativeTime(ts);
+    document.querySelectorAll('.alert-time[data-timestamp]').forEach(el => {
+      const ts       = parseInt(el.dataset.timestamp, 10);
+      const prefix   = el.closest('.alert-item--resolved') ? 'resolved ' : '';
+      el.textContent = prefix + this._relativeTime(ts);
     });
   },
 
-  /**
-   * Calcula el tiempo relativo desde un timestamp.
-   * @param {number} timestamp — ms desde epoch
-   * @returns {string} e.g. '14s ago', '2m ago', '1h ago'
-   */
+  // ─── Utilidades ──────────────────────────────────────────────────────────────
+
   _relativeTime(timestamp) {
     const diff = Math.floor((Date.now() - timestamp) / 1000);
+    if (diff < 5)    return 'just now';
     if (diff < 60)   return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     return `${Math.floor(diff / 3600)}h ago`;
   },
 
-  /**
-   * Devuelve el elemento DOM de una alerta por ID.
-   * @param {string} alertId
-   * @returns {HTMLElement | null}
-   */
-  _getAlertEl(alertId) {
-    return document.querySelector(`[data-alert-id="${alertId}"]`);
+  _formatDuration(seconds) {
+    if (seconds < 5)    return 'a moment';
+    if (seconds < 60)   return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return `${Math.floor(seconds / 3600)}h`;
   },
 
-  /**
-   * Helper de ordenación: danger primero, luego por timestamp descendente.
-   */
+  _getActiveEl(alertId) {
+    return document.querySelector(`#alerts-body [data-alert-id="${alertId}"]`);
+  },
+
   _sortAlerts(a, b) {
     if (a.severity !== b.severity) return a.severity === 'danger' ? -1 : 1;
     return b.timestamp - a.timestamp;
   },
 
-  /**
-   * Limpieza. Llamar si se desmonta la app.
-   */
   destroy() {
     if (this._handler) {
       EventBus.off(EVENTS.RULE_TRIGGERED, this._handler);
@@ -212,6 +301,8 @@ const AlertPanel = {
       clearInterval(this._timestampTimer);
       this._timestampTimer = null;
     }
+    this._activeSince.clear();
+    this._history = [];
   },
 };
 

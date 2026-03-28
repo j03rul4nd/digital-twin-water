@@ -15,137 +15,190 @@
 | **Fase 4** | Adapter + RuleEngine + polish | ✅ Completa |
 | **Fase 5** | Launch | ✅ Completa |
 | **Post-launch** | Mejoras iterativas | ✅ En curso |
-| **Fase 6** | V2.0 (post-tracción) | ⬜ Pendiente |
+| **V1.1** | Historical charts, incident mode, trend detection | 🔄 Parcial |
+| **Fase 6 / V2.0** | AI Advisor (WebLLM + TinyLlama) | ⬜ Pendiente |
 
 ---
 
-## Fase 1 — Completa
+## Estructura de archivos actual
 
 ```
-src/core/events.js         Catálogo EVENTS + EVENT_CONTRACT_VERSION
-src/core/EventBus.js       Pub/sub desacoplado
-src/sensors/SensorConfig.js  10 sensores WTP + validador dev mode
-src/sensors/SensorState.js   Singleton + buffer 360 snapshots + isReady() + reset()
-src/sensors/SensorSceneMap.js  Binding sensor → mesh 3D + getMeshNames()
-src/sensors/sensor.worker.js   Simulador con correlaciones causales
-src/utils/NoiseGenerator.js    Ruido suavizado por sensorId
-vite.config.js             worker: { format: 'es' } + base: '/digital-twin-water/'
-```
-
----
-
-## Fase 2 — Completa
-
-```
-src/core/SceneManager.js   Renderer WebGL2 + cámara + luces + OrbitControls
-src/core/ModelFactory.js   Planta WTP procedural, 12 meshes con MeshStandardMaterial
-src/core/AnimationLoop.js  RAF loop con OrbitControls.update()
-src/scene/ColorMapper.js   valor → material.color (nunca emissive)
-src/scene/AlertSystem.js   RULE_TRIGGERED → emissiveIntensity 0.35 (nunca color)
-src/scene/SceneUpdater.js  Coordina ColorMapper y AlertSystem via SensorSceneMap
-```
-
----
-
-## Fase 3 — Completa
-
-```
-index.html               Layout completo + tokens CSS DESIGN.md + fuentes
-src/ui/TelemetryPanel.js  10 rows, actualización DOM quirúrgica, badge live
-src/ui/AlertPanel.js      Alertas con acento, timestamps relativos, fade out
-src/ui/Toolbar.js         Topbar: dot MQTT, alert chip opacity 0/1
-src/ui/MiniMap.js         Leaflet + tiles dark + circleMarker Reus
-```
-
----
-
-## Fase 4 — Completa
-
-```
-src/main.js              init() 6 pasos, orquestación Worker↔MQTT, error screen
-src/sensors/RuleEngine.js  11 reglas RULES[], getActiveAlerts(), clearAlerts()
-src/sensors/MQTTAdapter.js  Conexión broker real, fix CJS/ESM Vite, sin credenciales hardcodeadas
-src/sensors/SensorWorker.js  Wrapper Worker con start/pause/resume/stop
-src/ui/MQTTPanel.js       Lee config de localStorage via ConfigModal.loadConfig()
-src/utils/DataExporter.js   CSV + JSON desde SensorState.history
+digital-twin-water/
+├── README.md
+├── index.html
+├── vite.config.js                      base: '/digital-twin-water/'
+├── server.js                           publicador MQTT Node.js para testing
+├── .github/workflows/deploy.yml        GitHub Actions → GitHub Pages
+├── docs/
+│   └── mqtt-production.md
+└── src/
+    ├── main.js
+    ├── core/
+    │   ├── events.js
+    │   ├── EventBus.js
+    │   ├── SceneManager.js
+    │   ├── ModelFactory.js
+    │   └── AnimationLoop.js
+    ├── sensors/
+    │   ├── SensorConfig.js
+    │   ├── SensorState.js
+    │   ├── SensorSceneMap.js
+    │   ├── sensor.worker.js
+    │   ├── SensorWorker.js
+    │   ├── RuleEngine.js
+    │   └── MQTTAdapter.js
+    ├── scene/
+    │   ├── ColorMapper.js
+    │   ├── AlertSystem.js
+    │   └── SceneUpdater.js
+    ├── ui/
+    │   ├── TelemetryPanel.js
+    │   ├── AlertPanel.js
+    │   ├── Toolbar.js
+    │   ├── MiniMap.js
+    │   ├── MQTTPanel.js
+    │   ├── ConfigModal.js
+    │   └── SensorDetailModal.js
+    └── utils/
+        ├── NoiseGenerator.js
+        └── DataExporter.js
 ```
 
 ---
 
-## Fase 5 — Completa
+## Fases 1–5 — Completas
 
-```
-README.md                Marketing-first, Quick Start 3 comandos, ganchos técnicos
-docs/mqtt-production.md  Snippet Python + bridge Node.js para instalaciones reales
-.github/workflows/deploy.yml  GitHub Actions → GitHub Pages automático
-```
+Ver historial de decisiones de arquitectura en `PRODUCT.md`.
 
----
+Resumen de lo construido:
 
-## Post-launch — Mejoras iterativas
-
-### ConfigModal — Panel de configuración MQTT en UI
-
-**Problema resuelto:** Las credenciales del broker estaban hardcodeadas en `MQTTPanel.js`. Cualquier usuario que forkeara el repo tenía las credenciales expuestas, y cambiar el broker requería editar código.
-
-**Solución implementada:**
-
-**`src/ui/ConfigModal.js`** — Modal de configuración accesible desde el botón `⚙ Settings` del topbar.
-- Campos: Broker URL, Username, Password, Plant ID
-- Validación inline antes de intentar conectar (URL vacía, formato incorrecto)
-- Botón "Test & Connect →" que intenta la conexión real y muestra el resultado en el modal
-- Si conecta: guarda en `localStorage` y cierra el modal automáticamente tras 1.2s
-- Si falla: muestra el error sin cerrar — el usuario puede corregir y reintentar
-- Cierre con `Escape`, clic fuera del modal, o botón Cancel
-- Al recargar la página, los valores del `localStorage` se pre-rellenan automáticamente
-
-**Claves de `localStorage`:**
-```
-wtp_broker_url   — URL completa wss://...
-wtp_username     — usuario del broker
-wtp_password     — contraseña
-wtp_plant_id     — plant ID
-```
-
-**Archivos modificados:**
-
-`src/ui/MQTTPanel.js` — ya no tiene credenciales hardcodeadas. Lee de `loadConfig()` de `ConfigModal` en el momento de conectar. Si no hay config guardada, el clic en "Connect" abre el modal directamente.
-
-`src/sensors/MQTTAdapter.js` — eliminada la URL de broker por defecto. Recibe toda la config de `options{}`. Fix del import dinámico de `mqtt` para Vite (`mod.default ?? mod`).
-
-`src/main.js` — añadido `ConfigModal.init()` en el paso 4 de `init()`.
-
-`index.html` — añadido botón `⚙ Settings` en el topbar + CSS completo del modal (overlay, inputs, footer, estados de status).
-
-### Fix MQTT — import dinámico con Vite
-
-**Problema:** `mqtt.connect is not a function`. Vite bundlea `mqtt` (CJS) como `{ default: { connect, ... } }` en vez de `{ connect, ... }`.
-
-**Fix:** `const mod = await import('mqtt'); mqttLib = mod.default ?? mod;`
+- Simulador en Web Worker con correlaciones causales entre sensores
+- Escena 3D procedural (Three.js) con 12 meshes funcionales vinculados a sensores
+- ColorMapper (material.color) + AlertSystem (emissiveIntensity) — capas separadas sin conflicto
+- RuleEngine con 11 reglas y ciclo de vida de alertas (active/resolved)
+- MQTTAdapter enchufable a broker real — fix Vite CJS/ESM aplicado
+- Panel de telemetría con 10 sensor rows actualizados quirúrgicamente
+- Panel de alertas con sección Active + History
+- ConfigModal para configurar broker desde UI sin tocar código
+- SensorDetailModal con gráfico SVG histórico en vivo
+- Deploy automático a GitHub Pages via GitHub Actions
+- `server.js` para publicar datos reales a HiveMQ Cloud
 
 ---
 
-## Fase 6 — Pendiente (V2.0)
+## Post-launch — Mejoras implementadas
 
-```
-feature/ai-advisor branch
-  ai.worker.js       TinyLlama via WebLLM (~700MB, opt-in)
-  AIPanel.js         Diagnóstico en lenguaje natural del proceso
-```
+### 1. ConfigModal — Configuración MQTT desde UI
 
-### Para Fase 6 recordar:
-- Rama separada `feature/ai-advisor` — no en main
-- El simulador y el RuleEngine siguen funcionando sin la IA
-- `postMessage` copia datos entre threads — overhead de serialización a medir
-- IndexedDB para cachear el modelo tras la primera descarga
+**Archivo:** `src/ui/ConfigModal.js`
+
+Modal de punto único de control para todo lo relacionado con MQTT. Accesible desde el botón "Configure & Connect →" del panel MQTT.
+
+Estados del modal: idle → connecting → connected → error. Cuando está conectado muestra un panel verde con broker, plant ID y topic activos, y el botón cambia a "Disconnect". El error se muestra dentro del modal sin cerrarlo — el usuario puede corregir y reintentar.
+
+Config guardada en `localStorage` (claves: `wtp_broker_url`, `wtp_username`, `wtp_password`, `wtp_plant_id`). Se pre-rellena automáticamente al reabrir.
+
+**Archivos relacionados modificados:**
+- `src/ui/MQTTPanel.js` — ahora es solo un indicador de estado. El botón abre `ConfigModal` directamente.
+- `src/sensors/MQTTAdapter.js` — sin URL hardcodeada, recibe todo de `options{}`.
+- `src/main.js` — `ConfigModal.init()` en paso 4.
+- `index.html` — botón del panel renombrado a "Configure & Connect →", CSS del modal, ⚙ Settings eliminado del topbar.
+
+### 2. AlertPanel — Historial de alertas resueltas
+
+**Archivo:** `src/ui/AlertPanel.js`
+
+Dos secciones en el panel:
+- **Active** — alertas activas en tiempo real (igual que antes)
+- **History** — alertas que se resolvieron, con duración ("active 45s") y timestamp de resolución
+
+Las alertas resueltas NO desaparecen — hacen fade suave y pasan a History. El usuario puede ver qué pasó, cuándo y cuánto duró. Guarda las últimas 20 en memoria. Botón "Clear" para limpiar el historial. El counter del header cambia: `2 active` en rojo / `5 in history` en gris / `—` cuando no hay nada.
+
+Importa `RuleEngine` directamente para recuperar alertas activas existentes en `init()`.
+
+### 3. SensorDetailModal — Histórico gráfico por sensor ✅ V1.1
+
+**Archivo:** `src/ui/SensorDetailModal.js`
+
+Modal que se abre al hacer clic en cualquier sensor row. Muestra:
+- Valor actual grande con color semántico
+- Badge de estado (Normal / Warning / Danger)
+- Gráfico SVG de los últimos 3 minutos (360 snapshots × 500ms) con líneas de referencia para umbrales warning y danger
+- Stats en tiempo real: min, avg, max, número de muestras
+- Se actualiza cada 500ms mientras está abierto
+
+SVG puro, sin librerías externas. Hover sobre el row muestra un icono `↗` como señal de que es clicable.
+
+**Archivos relacionados modificados:**
+- `src/ui/TelemetryPanel.js` — importa `SensorDetailModal`, rows tienen click handler.
+- `src/main.js` — `SensorDetailModal.init()` en paso 4.
+- `index.html` — CSS del modal de detalle + icono hover en rows.
+
+---
+
+## V1.1 — Estado parcial
+
+| Feature | Estado |
+|---|---|
+| Historical charts per sensor | ✅ Implementado (SensorDetailModal) |
+| Incident simulation mode | ⬜ Pendiente |
+| Trend detection in rule engine | ⬜ Pendiente |
+
+### Incident simulation mode — pendiente
+
+Modo que activa escenarios de fallo desde la UI sin necesitar el `server.js`. El usuario pulsa un botón en el dashboard y el simulador fuerza una situación anómala para ver cómo reacciona el sistema.
+
+Escenarios previstos:
+- `filter_clog` — Filter #1 DP sube a 180 mbar (warning)
+- `filter_critical` — Filter #1 DP sube a 205 mbar (danger)
+- `chlorine_deficit` — dosis de cloro no escala con caudal
+- `low_tank` — nivel de clearwell cae por debajo del umbral
+- `reset` — vuelve a valores normales
+
+Implementación: un panel o modal con botones que envían comandos al `sensor.worker.js` via `SensorWorker`. El Worker necesita un modo `{ cmd: 'scenario', name: '...' }` que sobreescriba los valores del simulador durante N segundos.
+
+### Trend detection in rule engine — pendiente
+
+El RuleEngine actualmente evalúa solo el valor puntual de cada tick. Con `SensorState.getHistory()` puede detectar tendencias sobre una ventana temporal.
+
+Reglas de tendencia previstas:
+- `filter_1_dp_rising` — filter_1_dp ha subido más de X mbar en los últimos Y segundos
+- `tank_draining` — tank_level lleva N ticks bajando consecutivamente sin recuperación
+- `inlet_flow_drop` — inlet_flow ha caído más de un 30% respecto a la media de los últimos 2 minutos
+
+Implementación: añadir una función helper `getTrend(sensorId, windowSeconds)` en `SensorState` que devuelva `{ slope, delta, direction }`. Las reglas de tendencia la consumen en su `condition()`.
+
+---
+
+## V2.0 — Pendiente
+
+Rama separada `feature/ai-advisor`:
+- `ai.worker.js` — TinyLlama via WebLLM (~700MB, opt-in, cached en IndexedDB)
+- `AIPanel.js` — diagnóstico en lenguaje natural del proceso
+
+No mezclar con `main` hasta tener tracción suficiente en el repo.
 
 ---
 
 ## Archivos que NO tocar sin razón
 
-Estos archivos son contratos de arquitectura. Cambiarlos tiene efectos en cascada:
+| Archivo | Por qué |
+|---|---|
+| `src/core/events.js` | Si se modifica un payload, subir `EVENT_CONTRACT_VERSION` |
+| `src/sensors/SensorConfig.js` | Los rangos afectan a RuleEngine, TelemetryPanel y ColorMapper |
+| `src/sensors/SensorSceneMap.js` | Los nombres deben coincidir EXACTAMENTE con ModelFactory |
+| `src/sensors/SensorState.js` | Singleton compartido por todos los módulos |
+| `src/scene/ColorMapper.js` | `getSensorState()` es usado por TelemetryPanel y SensorDetailModal |
 
-- `src/core/events.js` — si se modifica un payload, subir `EVENT_CONTRACT_VERSION`
-- `src/sensors/SensorConfig.js` — los rangos afectan a RuleEngine, TelemetryPanel y ColorMapper
-- `src/sensors/SensorSceneMap.js` — los nombres deben coincidir EXACTAMENTE con ModelFactory
-- `src/sensors/SensorState.js` — singleton compartido por todos los módulos
+---
+
+## Decisiones técnicas recientes
+
+| Decisión | Motivo |
+|---|---|
+| ConfigModal como punto único de control MQTT | Evitar confusión entre botón del panel y ⚙ del topbar |
+| Alertas resueltas → History en vez de desaparecer | El usuario necesita saber qué pasó y cuánto duró |
+| SVG puro para el gráfico histórico | Sin dependencias, sin peso, renderiza en cualquier browser |
+| Click en sensor row para abrir detalle | UX natural — el dato lleva al contexto, no al revés |
+| MQTTAdapter sin URL hardcodeada | Las credenciales nunca deben estar en el código |
+| Fix `mod.default ?? mod` en MQTTAdapter | Vite bundlea mqtt como CJS wrapped — normaliza ambos casos |

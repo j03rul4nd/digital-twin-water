@@ -761,6 +761,389 @@
       cursor: wait;
       opacity: 0.6;
     }
+
+    /* Botón disconnect — fondo rojo sutil */
+    .cfg-btn-disconnect {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--red);
+      background: var(--red-bg);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 4px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .cfg-btn-disconnect:hover {
+      opacity: 0.8;
+    }
+
+    /* Botón danger (clear config) */
+    .cfg-btn-danger {
+      color: var(--red);
+      border-color: rgba(239,68,68,0.2);
+    }
+
+    .cfg-btn-danger:hover {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    /* Header del modal con dot de estado */
+    #cfg-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #cfg-source-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text2);
+      flex-shrink: 0;
+    }
+
+    /* Panel de info cuando está conectado */
+    #cfg-connected-info {
+      background: var(--green-bg);
+      border: 1px solid rgba(34,197,94,0.15);
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 4px;
+    }
+
+    .cfg-connected-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .cfg-connected-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .cfg-connected-label {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 10px;
+      color: var(--text2);
+    }
+
+    .cfg-connected-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text1);
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    /* Estado connected en el botón del panel MQTT */
+    .mqtt-connect-btn.is-connected {
+      background: var(--green-bg);
+      color: var(--green);
+      border-color: rgba(34,197,94,0.3);
+    }
+
+    /* ══ ALERT PANEL — History ═══════════════════════════════════════════════ */
+
+    /* Separador de sección History */
+    #alerts-history-section {
+      border-top: 1px solid var(--line);
+    }
+
+    .alerts-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: var(--bg2);
+    }
+
+    .alerts-section-title {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .alerts-clear-btn {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--text2);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 3px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .alerts-clear-btn:hover {
+      color: var(--text0);
+      background: var(--bg3);
+    }
+
+    /* Badge de severidad en alertas activas */
+    .alert-badge {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      padding: 1px 5px;
+      border-radius: 2px;
+      margin-bottom: 3px;
+      letter-spacing: 0.05em;
+    }
+
+    .alert-badge--danger {
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid rgba(239,68,68,0.2);
+    }
+
+    .alert-badge--warning {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border: 1px solid rgba(245,158,11,0.2);
+    }
+
+    /* Badge de alertas resueltas — gris neutro */
+    .alert-badge--resolved {
+      background: var(--bg3);
+      color: var(--text2);
+      border: 1px solid var(--line2);
+    }
+
+    /* Alertas resueltas — aspecto atenuado */
+    .alert-item--resolved {
+      opacity: 0.7;
+    }
+
+    .alert-item--resolved:hover {
+      opacity: 1;
+    }
+
+    .alert-accent--resolved {
+      opacity: 0.35;
+    }
+
+    .alert-message--resolved {
+      color: var(--text1);
+    }
+
+    /* Row de resolución con duración */
+    .alert-resolved-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 3px;
+    }
+
+    .alert-resolved-duration {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    /* ══ SENSOR DETAIL MODAL ══════════════════════════════════════════════════ */
+
+    #sensor-detail-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+
+    #sensor-detail-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #sensor-detail-modal {
+      background: var(--bg1);
+      border: 1px solid var(--line2);
+      border-radius: 8px;
+      width: 420px;
+      max-width: calc(100vw - 32px);
+      overflow: hidden;
+      transform: translateY(6px);
+      transition: transform 0.15s ease;
+    }
+
+    #sensor-detail-overlay.visible #sensor-detail-modal {
+      transform: translateY(0);
+    }
+
+    #sd-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--line);
+    }
+
+    #sd-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #sd-sensor-name {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text0);
+    }
+
+    .sd-unit {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    .sd-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      padding: 2px 6px;
+      border-radius: 3px;
+      letter-spacing: 0.05em;
+    }
+
+    .sd-badge--normal  { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(34,197,94,0.2);  }
+    .sd-badge--warning { background: var(--amber-bg);  color: var(--amber);  border: 1px solid rgba(245,158,11,0.2); }
+    .sd-badge--danger  { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(239,68,68,0.2);  }
+
+    #sd-close {
+      background: transparent;
+      border: none;
+      color: var(--text2);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    #sd-close:hover { color: var(--text0); background: var(--bg3); }
+
+    #sd-value-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 14px 16px 0;
+    }
+
+    .sd-big-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px;
+      font-weight: 500;
+      color: var(--green);
+      line-height: 1;
+      transition: color 0.3s ease;
+    }
+
+    .sd-big-unit {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    #sd-chart-wrap {
+      position: relative;
+      padding: 12px 16px 0;
+    }
+
+    #sd-chart {
+      width: 100%;
+      height: 120px;
+      display: block;
+      overflow: visible;
+    }
+
+    #sd-no-data {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 11px;
+      color: var(--text2);
+    }
+
+    #sd-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--line);
+      margin: 12px 16px 0;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .sd-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 4px;
+      background: var(--bg2);
+      gap: 3px;
+    }
+
+    .sd-stat-label {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .sd-stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text0);
+    }
+
+    #sd-footer {
+      padding: 10px 16px 14px;
+    }
+
+    .sd-hint {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 9px;
+      color: var(--text2);
+    }
+
+    /* Icono de chart en sensor rows */
+    .sensor-chart-icon {
+      font-size: 9px;
+      color: var(--text2);
+      margin-left: 4px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      flex-shrink: 0;
+    }
+
+    .sensor-row:hover .sensor-chart-icon {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -804,8 +1187,6 @@
 
     <!-- Botones ghost -->
     <button class="topbar-btn" id="btn-export">Export CSV</button>
-    <div style="width: 6px;"></div>
-    <button class="topbar-btn" id="btn-settings" title="MQTT Configuration">⚙ Settings</button>
     <div style="width: 6px;"></div>
     <button class="topbar-btn" id="btn-docs">Docs ↗</button>
   </div>
@@ -855,7 +1236,7 @@
           <span class="mqtt-label">Plant ID</span>
           <span class="mqtt-value" id="mqtt-plant-val">plant-01</span>
         </div>
-        <button class="mqtt-connect-btn" id="mqtt-connect-btn">Connect real MQTT →</button>
+        <button class="mqtt-connect-btn" id="mqtt-connect-btn">Configure &amp; Connect →</button>
         <p class="mqtt-error-msg" id="mqtt-error-msg"></p>
       </div>
     </div>
