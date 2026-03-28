@@ -4,93 +4,104 @@
  * Contrato de arquitectura. No es un EventBus — no emite nada.
  * Los módulos leen de aquí; se notifican del cambio via EventBus (SENSOR_UPDATE).
  *
- * Flujo:
- *   Worker / MQTTAdapter → main.js → SensorState.update(snapshot)
- *                                  → EventBus.emit(SENSOR_UPDATE, snapshot)
- *
- * Módulos que leen de aquí: TelemetryPanel, RuleEngine, SceneUpdater, DataExporter.
- *
- * IMPORTANTE: Comprobar isReady() antes de actuar sobre los datos.
- * Durante los primeros ~500ms del arranque, readings es {} y isReady() devuelve false.
+ * Añadido: getTrend(sensorId, windowSeconds) para detección de tendencias
+ * en el RuleEngine sin duplicar lógica de análisis en cada regla.
  */
 
 const SensorState = {
-  /** Última lectura de cada sensor. {} hasta el primer tick. */
-  readings: {},
-
-  /** Timestamp del último snapshot recibido. null hasta el primer tick. */
+  readings:      {},
   lastTimestamp: null,
+  history:       [],
+  MAX_HISTORY:   360, // 360 × 500ms = 3 minutos
 
-  /**
-   * Buffer circular de los últimos MAX_HISTORY snapshots.
-   * Cada entrada: { timestamp: number, readings: Record<string, number> }
-   * Usado por DataExporter y para futuros gráficos de tendencia.
-   */
-  history: [],
-
-  /**
-   * Número máximo de snapshots en el histórico.
-   * 360 snapshots × 500ms = 3 minutos de histórico ≈ 72KB en memoria.
-   */
-  MAX_HISTORY: 360,
-
-  /**
-   * Actualiza el estado con un nuevo snapshot completo.
-   * Llamado por main.js en cada tick del Worker o del MQTTAdapter.
-   * @param {{ timestamp: number, readings: Record<string, number> }} snapshot
-   */
   update(snapshot) {
-    this.readings = snapshot.readings;
+    this.readings      = snapshot.readings;
     this.lastTimestamp = snapshot.timestamp;
     this.history.push({ timestamp: snapshot.timestamp, readings: { ...snapshot.readings } });
-    if (this.history.length > this.MAX_HISTORY) {
-      this.history.shift();
-    }
+    if (this.history.length > this.MAX_HISTORY) this.history.shift();
   },
 
-  /**
-   * Devuelve el valor actual de un sensor.
-   * Devuelve undefined si aún no hay datos (antes del primer tick).
-   * @param {string} sensorId
-   * @returns {number | undefined}
-   */
   get(sensorId) {
     return this.readings[sensorId];
   },
 
-  /**
-   * true cuando ha llegado al menos un tick de datos.
-   * Usar antes de leer readings en cualquier módulo.
-   * @returns {boolean}
-   */
   isReady() {
     return this.lastTimestamp !== null;
   },
 
-  /**
-   * Devuelve los últimos N snapshots del sensor indicado, del más antiguo al más reciente.
-   * Usado por DataExporter y futuros gráficos de tendencia.
-   * @param {string} sensorId
-   * @param {number} [n] — número de snapshots (por defecto MAX_HISTORY)
-   * @returns {{ timestamp: number, value: number }[]}
-   */
   getHistory(sensorId, n = SensorState.MAX_HISTORY) {
     return this.history.slice(-n).map(s => ({
       timestamp: s.timestamp,
-      value: s.readings[sensorId],
+      value:     s.readings[sensorId],
     }));
   },
 
   /**
-   * Resetea el estado completamente.
-   * Llamar desde main.js al cambiar de fuente de datos (Worker → MQTT o viceversa).
-   * Garantiza que DataExporter no mezcle datos de dos fuentes distintas.
-   * RuleEngine también debe limpiar sus alertas activas en el mismo momento.
+   * Analiza la tendencia de un sensor en una ventana temporal.
+   *
+   * Devuelve un objeto con:
+   *   slope      — cambio por segundo (positivo = subiendo, negativo = bajando)
+   *   delta      — diferencia total entre el primer y último valor de la ventana
+   *   deltaRel   — delta relativo al primer valor (0.4 = subió un 40%)
+   *   direction  — 'rising' | 'falling' | 'stable'
+   *   samples    — número de muestras en la ventana
+   *   mean       — media de los valores en la ventana
+   *   first      — primer valor de la ventana
+   *   last       — último valor de la ventana (más reciente)
+   *
+   * Devuelve null si no hay suficientes datos (< 2 muestras en la ventana).
+   *
+   * @param {string} sensorId
+   * @param {number} windowSeconds — ventana de análisis en segundos (e.g. 60 = último minuto)
+   * @param {number} [stableThreshold] — pendiente por debajo de la cual se considera estable (default 0.05)
+   * @returns {{ slope, delta, deltaRel, direction, samples, mean, first, last } | null}
    */
+  getTrend(sensorId, windowSeconds, stableThreshold = 0.05) {
+    if (this.history.length < 2) return null;
+
+    const now        = this.lastTimestamp ?? Date.now();
+    const cutoff     = now - windowSeconds * 1000;
+    const window     = this.history
+      .filter(s => s.timestamp >= cutoff)
+      .map(s => ({ t: s.timestamp, v: s.readings[sensorId] }))
+      .filter(p => typeof p.v === 'number' && isFinite(p.v));
+
+    if (window.length < 2) return null;
+
+    const first = window[0].v;
+    const last  = window[window.length - 1].v;
+    const delta = last - first;
+
+    // Pendiente mediante regresión lineal simple (mínimos cuadrados)
+    // Da una pendiente más robusta que la simple diferencia first/last
+    const n      = window.length;
+    const tBase  = window[0].t; // normalizar timestamps para evitar overflow
+    let sumT = 0, sumV = 0, sumTV = 0, sumTT = 0;
+    window.forEach(({ t, v }) => {
+      const tn = (t - tBase) / 1000; // en segundos
+      sumT  += tn;
+      sumV  += v;
+      sumTV += tn * v;
+      sumTT += tn * tn;
+    });
+    const denom = n * sumTT - sumT * sumT;
+    const slope = denom !== 0 ? (n * sumTV - sumT * sumV) / denom : 0;
+
+    const deltaRel = first !== 0 ? delta / Math.abs(first) : 0;
+    const mean     = sumV / n;
+
+    let direction;
+    if      (Math.abs(slope) < stableThreshold) direction = 'stable';
+    else if (slope > 0)                          direction = 'rising';
+    else                                         direction = 'falling';
+
+    return { slope, delta, deltaRel, direction, samples: n, mean, first, last };
+  },
+
   reset() {
-    this.readings = {};
+    this.readings      = {};
     this.lastTimestamp = null;
-    this.history = [];
+    this.history       = [];
   },
 };
 

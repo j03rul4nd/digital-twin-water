@@ -8,7 +8,7 @@
  * Los forks que dependan del payload pueden hacer un check explícito.
  */
 
-export const EVENT_CONTRACT_VERSION = '1';
+export const EVENT_CONTRACT_VERSION = '2';
 
 export const EVENTS = {
   // ─── Datos de sensores ────────────────────────────────────────────────────
@@ -54,4 +54,10 @@ export const EVENTS = {
 
   // payload: { format: 'json' | 'csv', rowCount: number }
   EXPORT_COMPLETE: 'export:complete',
+
+  // ─── Simulación de incidentes ─────────────────────────────────────────────
+  // Emitido por SensorWorker cuando el Worker activa o cancela un escenario.
+  // payload: { name: string, expiresAt: number, durationMs: number } | null
+  //   null → escenario terminado o cancelado, simulador en modo normal
+  SCENARIO_CHANGED: 'scenario:changed',
 };

@@ -14,9 +14,8 @@
 | **Fase 3** | UI | ✅ Completa |
 | **Fase 4** | Adapter + RuleEngine + polish | ✅ Completa |
 | **Fase 5** | Launch | ✅ Completa |
-| **Post-launch** | Mejoras iterativas | ✅ En curso |
-| **V1.1** | Historical charts, incident mode, trend detection | 🔄 Parcial |
-| **Fase 6 / V2.0** | AI Advisor (WebLLM + TinyLlama) | ⬜ Pendiente |
+| **V1.1** | Historical charts, incident mode, trend detection | ✅ Completa |
+| **V2.0** | AI Advisor (WebLLM + TinyLlama) | ⬜ Pendiente |
 
 ---
 
@@ -26,39 +25,40 @@
 digital-twin-water/
 ├── README.md
 ├── index.html
-├── vite.config.js                      base: '/digital-twin-water/'
-├── server.js                           publicador MQTT Node.js para testing
-├── .github/workflows/deploy.yml        GitHub Actions → GitHub Pages
+├── vite.config.js
+├── server.js
+├── .github/workflows/deploy.yml
 ├── docs/
 │   └── mqtt-production.md
 └── src/
     ├── main.js
     ├── core/
-    │   ├── events.js
+    │   ├── events.js             EVENT_CONTRACT_VERSION = '2'
     │   ├── EventBus.js
     │   ├── SceneManager.js
     │   ├── ModelFactory.js
     │   └── AnimationLoop.js
     ├── sensors/
     │   ├── SensorConfig.js
-    │   ├── SensorState.js
+    │   ├── SensorState.js        + getTrend()
     │   ├── SensorSceneMap.js
-    │   ├── sensor.worker.js
-    │   ├── SensorWorker.js
-    │   ├── RuleEngine.js
+    │   ├── sensor.worker.js      + escenarios de incidente
+    │   ├── SensorWorker.js       + scenario()
+    │   ├── RuleEngine.js         + 4 reglas de tendencia
     │   └── MQTTAdapter.js
     ├── scene/
     │   ├── ColorMapper.js
     │   ├── AlertSystem.js
     │   └── SceneUpdater.js
     ├── ui/
-    │   ├── TelemetryPanel.js
-    │   ├── AlertPanel.js
+    │   ├── TelemetryPanel.js     + click → SensorDetailModal
+    │   ├── AlertPanel.js         + sección History
     │   ├── Toolbar.js
     │   ├── MiniMap.js
-    │   ├── MQTTPanel.js
-    │   ├── ConfigModal.js
-    │   └── SensorDetailModal.js
+    │   ├── MQTTPanel.js          solo indicador de estado
+    │   ├── ConfigModal.js        configuración MQTT desde UI
+    │   ├── SensorDetailModal.js  gráfico histórico SVG en vivo
+    │   └── IncidentPanel.js      simulación de incidentes
     └── utils/
         ├── NoiseGenerator.js
         └── DataExporter.js
@@ -68,105 +68,75 @@ digital-twin-water/
 
 ## Fases 1–5 — Completas
 
-Ver historial de decisiones de arquitectura en `PRODUCT.md`.
-
-Resumen de lo construido:
-
-- Simulador en Web Worker con correlaciones causales entre sensores
-- Escena 3D procedural (Three.js) con 12 meshes funcionales vinculados a sensores
-- ColorMapper (material.color) + AlertSystem (emissiveIntensity) — capas separadas sin conflicto
-- RuleEngine con 11 reglas y ciclo de vida de alertas (active/resolved)
-- MQTTAdapter enchufable a broker real — fix Vite CJS/ESM aplicado
-- Panel de telemetría con 10 sensor rows actualizados quirúrgicamente
-- Panel de alertas con sección Active + History
-- ConfigModal para configurar broker desde UI sin tocar código
-- SensorDetailModal con gráfico SVG histórico en vivo
-- Deploy automático a GitHub Pages via GitHub Actions
+- Simulador en Web Worker con correlaciones causales
+- Escena 3D procedural Three.js, 12 meshes funcionales
+- ColorMapper + AlertSystem — capas separadas sin conflicto
+- RuleEngine con ciclo de vida activo/resuelto
+- MQTTAdapter con fix Vite CJS/ESM
+- Deploy automático a GitHub Pages
 - `server.js` para publicar datos reales a HiveMQ Cloud
 
 ---
 
-## Post-launch — Mejoras implementadas
+## V1.1 — Completa ✅
 
-### 1. ConfigModal — Configuración MQTT desde UI
+### Historical charts per sensor
 
-**Archivo:** `src/ui/ConfigModal.js`
+**`src/ui/SensorDetailModal.js`** — clic en sensor row abre modal con:
+- Valor actual con color semántico + badge Normal/Warning/Danger
+- Gráfico SVG de los últimos 3 minutos con líneas de referencia de umbrales
+- Stats: min, avg, max, samples — actualizados cada 500ms en vivo
+- Icono `↗` aparece en hover sobre el row como señal de que es clicable
 
-Modal de punto único de control para todo lo relacionado con MQTT. Accesible desde el botón "Configure & Connect →" del panel MQTT.
+### Incident simulation mode
 
-Estados del modal: idle → connecting → connected → error. Cuando está conectado muestra un panel verde con broker, plant ID y topic activos, y el botón cambia a "Disconnect". El error se muestra dentro del modal sin cerrarlo — el usuario puede corregir y reintentar.
+**`src/ui/IncidentPanel.js`** — panel flotante centrado en la parte inferior de la escena.
 
-Config guardada en `localStorage` (claves: `wtp_broker_url`, `wtp_username`, `wtp_password`, `wtp_plant_id`). Se pre-rellena automáticamente al reabrir.
+Pill colapsada por defecto. Al expandir muestra 5 escenarios en grid 2×2:
+- **Filter #1 Clog** — DP sube a 185 mbar (warning)
+- **Filter #1 Critical** — DP sube a 215 mbar (danger)
+- **Chlorine Deficit** — dosis no escala con caudal alto (danger)
+- **Low Tank Level** — nivel baja a ~18% (warning)
+- **pH Anomaly** — pH cae a 5.8 (warning)
 
-**Archivos relacionados modificados:**
-- `src/ui/MQTTPanel.js` — ahora es solo un indicador de estado. El botón abre `ConfigModal` directamente.
-- `src/sensors/MQTTAdapter.js` — sin URL hardcodeada, recibe todo de `options{}`.
-- `src/main.js` — `ConfigModal.init()` en paso 4.
-- `index.html` — botón del panel renombrado a "Configure & Connect →", CSS del modal, ⚙ Settings eliminado del topbar.
+Cada escenario dura 30 segundos con countdown visible. Botón "Reset to normal" cancela inmediatamente. El panel se oculta cuando MQTT está conectado.
 
-### 2. AlertPanel — Historial de alertas resueltas
+**`src/sensors/sensor.worker.js`** — nuevo comando `{ cmd: 'scenario', name, durationMs }`. Los escenarios sobreescriben los valores del simulador durante la duración indicada y luego vuelven a normal automáticamente. El Worker emite `{ type: 'scenario_update' }` para notificar cambios de estado.
 
-**Archivo:** `src/ui/AlertPanel.js`
+**`src/sensors/SensorWorker.js`** — método `scenario(name, durationMs)` + manejo de mensajes `scenario_update` que emite `EVENTS.SCENARIO_CHANGED`.
 
-Dos secciones en el panel:
-- **Active** — alertas activas en tiempo real (igual que antes)
-- **History** — alertas que se resolvieron, con duración ("active 45s") y timestamp de resolución
+**`src/core/events.js`** — añadido `EVENTS.SCENARIO_CHANGED`. `EVENT_CONTRACT_VERSION` subido a `'2'`.
 
-Las alertas resueltas NO desaparecen — hacen fade suave y pasan a History. El usuario puede ver qué pasó, cuándo y cuánto duró. Guarda las últimas 20 en memoria. Botón "Clear" para limpiar el historial. El counter del header cambia: `2 active` en rojo / `5 in history` en gris / `—` cuando no hay nada.
+### Trend detection in rule engine
 
-Importa `RuleEngine` directamente para recuperar alertas activas existentes en `init()`.
+**`src/sensors/SensorState.js`** — nuevo método `getTrend(sensorId, windowSeconds, stableThreshold?)`.
 
-### 3. SensorDetailModal — Histórico gráfico por sensor ✅ V1.1
+Usa **regresión lineal** (mínimos cuadrados) sobre la ventana temporal indicada. Más robusto que comparar primer/último valor — no se deja engañar por picos puntuales.
 
-**Archivo:** `src/ui/SensorDetailModal.js`
+Devuelve: `{ slope, delta, deltaRel, direction, samples, mean, first, last }` o `null` si no hay suficientes datos.
 
-Modal que se abre al hacer clic en cualquier sensor row. Muestra:
-- Valor actual grande con color semántico
-- Badge de estado (Normal / Warning / Danger)
-- Gráfico SVG de los últimos 3 minutos (360 snapshots × 500ms) con líneas de referencia para umbrales warning y danger
-- Stats en tiempo real: min, avg, max, número de muestras
-- Se actualiza cada 500ms mientras está abierto
+**`src/sensors/RuleEngine.js`** — 4 reglas de tendencia nuevas. La función `evaluate()` pasa `SensorState` como segundo argumento a `condition(readings, state)` — las reglas simples ignoran el segundo argumento, las de tendencia lo usan para llamar a `state.getTrend()`.
 
-SVG puro, sin librerías externas. Hover sobre el row muestra un icono `↗` como señal de que es clicable.
+| Regla | Ventana | Condición | Propósito |
+|---|---|---|---|
+| `filter_1_dp_rising` | 60s | slope > 0.8 mbar/s, rising | Predice colmatación antes del umbral |
+| `tank_draining` | 90s | falling, deltaRel < -15% | Detecta vaciado progresivo |
+| `inlet_flow_sudden_drop` | 30s | falling, deltaRel < -35% | Detecta fallo en bomba de entrada |
+| `filtered_turbidity_rising` | 120s | rising, deltaRel > 50% | Detecta degradación del medio filtrante |
 
-**Archivos relacionados modificados:**
-- `src/ui/TelemetryPanel.js` — importa `SensorDetailModal`, rows tienen click handler.
-- `src/main.js` — `SensorDetailModal.init()` en paso 4.
-- `index.html` — CSS del modal de detalle + icono hover en rows.
+Todas las reglas de tendencia incluyen una guardia que las desactiva si el valor ya tiene alerta absoluta activa — evita doble alerta por el mismo problema.
 
 ---
 
-## V1.1 — Estado parcial
+## Post-launch — Mejoras de UX implementadas
 
-| Feature | Estado |
-|---|---|
-| Historical charts per sensor | ✅ Implementado (SensorDetailModal) |
-| Incident simulation mode | ⬜ Pendiente |
-| Trend detection in rule engine | ⬜ Pendiente |
+### ConfigModal
 
-### Incident simulation mode — pendiente
+Punto único de control para MQTT. Modal accesible desde "Configure & Connect →" en el panel MQTT. Detecta si ya hay conexión activa al abrirse y muestra el estado correcto. Config guardada en `localStorage`.
 
-Modo que activa escenarios de fallo desde la UI sin necesitar el `server.js`. El usuario pulsa un botón en el dashboard y el simulador fuerza una situación anómala para ver cómo reacciona el sistema.
+### AlertPanel con History
 
-Escenarios previstos:
-- `filter_clog` — Filter #1 DP sube a 180 mbar (warning)
-- `filter_critical` — Filter #1 DP sube a 205 mbar (danger)
-- `chlorine_deficit` — dosis de cloro no escala con caudal
-- `low_tank` — nivel de clearwell cae por debajo del umbral
-- `reset` — vuelve a valores normales
-
-Implementación: un panel o modal con botones que envían comandos al `sensor.worker.js` via `SensorWorker`. El Worker necesita un modo `{ cmd: 'scenario', name: '...' }` que sobreescriba los valores del simulador durante N segundos.
-
-### Trend detection in rule engine — pendiente
-
-El RuleEngine actualmente evalúa solo el valor puntual de cada tick. Con `SensorState.getHistory()` puede detectar tendencias sobre una ventana temporal.
-
-Reglas de tendencia previstas:
-- `filter_1_dp_rising` — filter_1_dp ha subido más de X mbar en los últimos Y segundos
-- `tank_draining` — tank_level lleva N ticks bajando consecutivamente sin recuperación
-- `inlet_flow_drop` — inlet_flow ha caído más de un 30% respecto a la media de los últimos 2 minutos
-
-Implementación: añadir una función helper `getTrend(sensorId, windowSeconds)` en `SensorState` que devuelva `{ slope, delta, direction }`. Las reglas de tendencia la consumen en su `condition()`.
+Las alertas resueltas no desaparecen — pasan a sección History con duración ("active 45s") y timestamp de resolución. Últimas 20 en memoria. Botón Clear.
 
 ---
 
@@ -176,7 +146,7 @@ Rama separada `feature/ai-advisor`:
 - `ai.worker.js` — TinyLlama via WebLLM (~700MB, opt-in, cached en IndexedDB)
 - `AIPanel.js` — diagnóstico en lenguaje natural del proceso
 
-No mezclar con `main` hasta tener tracción suficiente en el repo.
+No mezclar con `main` hasta tener tracción suficiente.
 
 ---
 
@@ -187,18 +157,5 @@ No mezclar con `main` hasta tener tracción suficiente en el repo.
 | `src/core/events.js` | Si se modifica un payload, subir `EVENT_CONTRACT_VERSION` |
 | `src/sensors/SensorConfig.js` | Los rangos afectan a RuleEngine, TelemetryPanel y ColorMapper |
 | `src/sensors/SensorSceneMap.js` | Los nombres deben coincidir EXACTAMENTE con ModelFactory |
-| `src/sensors/SensorState.js` | Singleton compartido por todos los módulos |
-| `src/scene/ColorMapper.js` | `getSensorState()` es usado por TelemetryPanel y SensorDetailModal |
-
----
-
-## Decisiones técnicas recientes
-
-| Decisión | Motivo |
-|---|---|
-| ConfigModal como punto único de control MQTT | Evitar confusión entre botón del panel y ⚙ del topbar |
-| Alertas resueltas → History en vez de desaparecer | El usuario necesita saber qué pasó y cuánto duró |
-| SVG puro para el gráfico histórico | Sin dependencias, sin peso, renderiza en cualquier browser |
-| Click en sensor row para abrir detalle | UX natural — el dato lleva al contexto, no al revés |
-| MQTTAdapter sin URL hardcodeada | Las credenciales nunca deben estar en el código |
-| Fix `mod.default ?? mod` en MQTTAdapter | Vite bundlea mqtt como CJS wrapped — normaliza ambos casos |
+| `src/sensors/SensorState.js` | Singleton compartido — getTrend() es ahora parte del contrato |
+| `src/scene/ColorMapper.js` | getSensorState() usado por TelemetryPanel y SensorDetailModal |

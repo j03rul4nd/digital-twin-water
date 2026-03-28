@@ -148,6 +148,80 @@ const RULES = [
     message:   'Inlet flow outside normal range — check intake structure',
     condition: (r) => r.inlet_flow < 40 || r.inlet_flow > 220,
   },
+
+  // ══ REGLAS DE TENDENCIA ════════════════════════════════════════════════════
+  // Estas reglas usan SensorState.getTrend() para detectar patrones en el tiempo
+  // en vez de evaluar solo el valor puntual del tick actual.
+  // condition recibe (readings, state) donde state = SensorState.
+
+  // ── Filter #1 DP subiendo rápido ──────────────────────────────────────────
+  // Predice colmatación inminente antes de llegar al umbral de warning.
+  // Dispara cuando la pendiente supera 0.8 mbar/s en los últimos 60 segundos.
+  // Eso equivale a subir ~48 mbar en un minuto — señal de colmatación acelerada.
+  {
+    id:        'filter_1_dp_rising',
+    severity:  'warning',
+    sensorIds: ['filter_1_dp'],
+    message:   'Filter #1 DP rising fast — clogging predicted within minutes',
+    condition: (r, state) => {
+      // No disparar si ya está en zona de warning por valor absoluto
+      if (r.filter_1_dp > 150) return false;
+      const trend = state.getTrend('filter_1_dp', 60);
+      if (!trend || trend.samples < 10) return false;
+      return trend.slope > 0.8 && trend.direction === 'rising';
+    },
+  },
+
+  // ── Tank level bajando de forma sostenida ─────────────────────────────────
+  // Detecta vaciado progresivo del clearwell antes de llegar al umbral absoluto.
+  // Dispara cuando el nivel lleva 90s bajando y ha perdido más de un 15% relativo.
+  {
+    id:        'tank_draining',
+    severity:  'warning',
+    sensorIds: ['tank_level'],
+    message:   'Clearwell tank draining steadily — check demand vs inlet balance',
+    condition: (r, state) => {
+      // No disparar si ya está en warning por valor absoluto
+      if (r.tank_level < 25) return false;
+      const trend = state.getTrend('tank_level', 90);
+      if (!trend || trend.samples < 15) return false;
+      return trend.direction === 'falling' && trend.deltaRel < -0.15;
+    },
+  },
+
+  // ── Caída brusca de caudal de entrada ─────────────────────────────────────
+  // Una caída > 35% en 30 segundos indica problema en la toma o bomba de entrada.
+  // Distinto de inlet_flow_anomaly que detecta valores fuera de rango absoluto.
+  {
+    id:        'inlet_flow_sudden_drop',
+    severity:  'warning',
+    sensorIds: ['inlet_flow'],
+    message:   'Inlet flow dropped sharply — check intake pump and intake structure',
+    condition: (r, state) => {
+      // No disparar si el caudal ya está en rango anómalo absoluto
+      if (r.inlet_flow < 40) return false;
+      const trend = state.getTrend('inlet_flow', 30);
+      if (!trend || trend.samples < 6) return false;
+      // Caída > 35% respecto al valor inicial de la ventana
+      return trend.direction === 'falling' && trend.deltaRel < -0.35;
+    },
+  },
+
+  // ── Turbidez filtrada con tendencia al alza ────────────────────────────────
+  // La turbidez post-filtración subiendo de forma sostenida indica
+  // degradación progresiva del medio filtrante, incluso antes de superar el umbral.
+  {
+    id:        'filtered_turbidity_rising',
+    severity:  'warning',
+    sensorIds: ['filtered_turbidity'],
+    message:   'Filtered turbidity trending up — filter media may be degrading',
+    condition: (r, state) => {
+      if (r.filtered_turbidity > 0.5) return false; // ya tiene alerta absoluta
+      const trend = state.getTrend('filtered_turbidity', 120);
+      if (!trend || trend.samples < 20) return false;
+      return trend.direction === 'rising' && trend.deltaRel > 0.5;
+    },
+  },
 ];
 
 // ─── Estado interno ───────────────────────────────────────────────────────────
@@ -174,7 +248,9 @@ function evaluate(snapshot) {
   RULES.forEach(rule => {
     let triggered = false;
     try {
-      triggered = rule.condition(readings);
+      // Las reglas de tendencia reciben (readings, SensorState) como argumentos.
+      // Las reglas simples solo usan el primero — el segundo es ignorado.
+      triggered = rule.condition(readings, SensorState);
     } catch (err) {
       if (import.meta.env.DEV) {
         console.warn(`RuleEngine: error evaluando regla "${rule.id}"`, err);
