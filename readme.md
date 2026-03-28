@@ -12,9 +12,11 @@
 
 ## What is this
 
-A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, and a rule engine that detects process anomalies. No Docker, no server, no auth.
+A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, a rule engine that detects process anomalies, and a trend detection system that predicts failures before they happen.
 
-Designed to live exactly between the repos that are too simple (just Three.js with no data) and the ones too complex (FUXA, ThingsBoard, iTwin.js). Fork it, swap in your sensors, connect your real MQTT broker.
+No Docker, no server, no auth. Fork it, swap in your sensors, connect your real MQTT broker.
+
+Designed to live exactly between repos that are too simple (just Three.js with no data) and too complex (FUXA, ThingsBoard, iTwin.js).
 
 ---
 
@@ -27,24 +29,46 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) — the simulator starts immediately.
+Open [http://localhost:5173](http://localhost:5173) — the simulator starts immediately. No configuration needed.
+
+---
+
+## Features
+
+**Real-time 3D visualization**
+Procedural plant model built with Three.js. Each mesh is bound to a sensor — when an alert fires, the corresponding 3D object glows in the scene. Color follows ISA-101: gray is normal, amber is warning, red is danger.
+
+**Rule engine with trend detection**
+Evaluates 15 rules every 500ms. Threshold rules catch active anomalies. Trend rules use linear regression over a time window to predict failures before they cross the threshold — filter clogging, tank draining, sudden flow drops, turbidity drift.
+
+**Sensor history charts**
+Click any sensor row to open a live chart of the last 3 minutes. Min, avg, max and sample count update in real time. Warning and danger reference lines overlaid on the chart.
+
+**Alert history**
+Resolved alerts don't disappear — they move to a History section with duration ("active 45s") and resolution timestamp. The operator always knows what happened and when.
+
+**Incident simulator**
+Trigger fault scenarios from the UI without writing code. Five built-in scenarios (filter clog, critical pressure, chlorine deficit, low tank, pH anomaly) each run for 30 seconds and reset automatically. Useful for demos and for testing your own alert rules.
+
+**UI-configurable MQTT**
+Click "Configure & Connect →" to enter broker URL, credentials and plant ID. No code changes needed. Config is saved in `localStorage` and restored on reload.
 
 ---
 
 ## Connect your real MQTT broker
 
-The simulator runs out of the box. When you're ready to connect real data, no code editing required:
+The simulator runs out of the box. When you're ready to connect real data:
 
-**1. Click `⚙ Settings`** in the top bar — a configuration panel opens.
+**1. Click `Configure & Connect →`** in the MQTT panel on the right side of the dashboard.
 
 **2. Fill in your broker details:**
 - **Broker URL** — e.g. `wss://your-cluster.hivemq.cloud:8884/mqtt`
 - **Username** and **Password**
-- **Plant ID** — used to build the topic `wtp/plant/{plantId}/sensors`
+- **Plant ID** — used to build the subscription topic
 
-**3. Click `Test & Connect →`** — the dashboard tests the connection live. If it succeeds, the config is saved automatically and restored on every reload. No code changes needed.
+**3. Click `Test & Connect →`** — the dashboard tests the connection live. On success the config saves automatically and the simulator pauses.
 
-**2. Publish your sensor data** to the topic `wtp/plant/{plantId}/sensors` in this format:
+**4. Publish your sensor data** to `wtp/plant/{plantId}/sensors`:
 
 ```json
 {
@@ -64,40 +88,64 @@ The simulator runs out of the box. When you're ready to connect real data, no co
 }
 ```
 
-> **Note:** Works with brokers configured for `ws://` or `wss://` with simple credentials. For installations with mutual TLS (client certificates), you need an intermediate proxy — see [docs/mqtt-production.md](docs/mqtt-production.md).
+> Works with `ws://` and `wss://` brokers. For mutual TLS installations, you need an intermediate proxy — see [docs/mqtt-production.md](docs/mqtt-production.md).
 
-For a full Python example publishing from a real installation: [docs/mqtt-production.md](docs/mqtt-production.md)
+Full Python publishing example: [docs/mqtt-production.md](docs/mqtt-production.md)
+
+---
+
+## Adding your own alert rules
+
+Open `src/sensors/RuleEngine.js` and add an object to the `RULES` array:
+
+```js
+// Simple threshold rule
+{
+  id:        'my_pressure_rule',
+  severity:  'warning',
+  sensorIds: ['outlet_pressure'],
+  message:   'Distribution pressure too high — check downstream valves',
+  condition: (readings) => readings.outlet_pressure > 6.5,
+}
+```
+
+For trend-based rules, use the `state` argument to access the history buffer:
+
+```js
+// Trend rule — detects a rising pattern over time
+{
+  id:        'pressure_rising',
+  severity:  'warning',
+  sensorIds: ['outlet_pressure'],
+  message:   'Distribution pressure rising fast — check pump settings',
+  condition: (readings, state) => {
+    const trend = state.getTrend('outlet_pressure', 60); // last 60 seconds
+    if (!trend || trend.samples < 10) return false;
+    return trend.direction === 'rising' && trend.slope > 0.05; // > 0.05 bar/s
+  },
+}
+```
+
+`getTrend()` returns `{ slope, delta, deltaRel, direction, samples, mean, first, last }` computed via linear regression. `direction` is `'rising'`, `'falling'`, or `'stable'`.
+
+The rule engine evaluates every 500ms. When the condition is true, the alert appears in the panel and the corresponding 3D mesh starts glowing. When the condition clears, the alert moves to History automatically.
 
 ---
 
 ## Adding your own sensors
 
-Open `src/sensors/RuleEngine.js` and add an object to the `RULES` array:
+Add an entry to `src/sensors/SensorConfig.js`:
 
 ```js
 {
-  id:        'my_custom_rule',         // unique — used for deduplication
-  severity:  'warning',               // 'warning' | 'danger'
-  sensorIds: ['inlet_flow'],          // which meshes to highlight in the 3D scene
-  message:   'Inlet flow too high for current capacity',
-  condition: (readings) => readings.inlet_flow > 210,
-}
-```
-
-That's it. The rule engine evaluates every 500ms. When the condition is true, the alert appears in the panel and the corresponding 3D mesh starts glowing.
-
-To add a new sensor with its own display range and thresholds, add an entry to `src/sensors/SensorConfig.js`:
-
-```js
-{
-  id:      'my_sensor',
-  label:   'My Sensor',
-  unit:    'bar',
+  id:       'my_sensor',
+  label:    'My Sensor',
+  unit:     'bar',
   rangeMin: 0,
   rangeMax: 10,
-  normal:  { low: 2, high: 8 },
-  warning: { low: 1, high: 9 },
-  danger:  { low: 0, high: 10 },
+  normal:   { low: 2, high: 8 },
+  warning:  { low: 1, high: 9 },
+  danger:   { low: 0, high: 10 },
 }
 ```
 
@@ -114,35 +162,40 @@ my_sensor: ['mesh_pump_station'],
 ```
 sensor.worker.js  (Web Worker — isolated from render loop)
   │  generates complete snapshot every 500ms
+  │  supports incident scenarios: { cmd: 'scenario', name, durationMs }
   │  { timestamp, readings: { all sensors } }
   │  postMessage → main thread
   ▼
-main.js → SensorState.update()        ← single source of truth
+main.js → SensorState.update()        ← single source of truth + history buffer
         → EventBus.emit(SENSOR_UPDATE)
   │
-  ├──▶ RuleEngine      evaluates RULES[], manages alert lifecycle
-  │      └──▶ EventBus.emit(RULE_TRIGGERED, { active: true/false })
-  │              ├──▶ AlertPanel    updates alert list in UI
-  │              └──▶ AlertSystem   applies emissive glow to 3D meshes
+  ├──▶ RuleEngine      evaluates RULES[] every tick
+  │      ├── threshold rules  — condition(readings)
+  │      └── trend rules      — condition(readings, SensorState) → getTrend()
+  │           └──▶ EventBus.emit(RULE_TRIGGERED, { active: true/false })
+  │                   ├──▶ AlertPanel       active list + history section
+  │                   └──▶ AlertSystem      emissive glow on 3D meshes
   │
-  ├──▶ SceneUpdater    ColorMapper → mesh.material.color
-  └──▶ TelemetryPanel  sensor rows with live values and progress bars
+  ├──▶ SceneUpdater    ColorMapper → mesh.material.color per tick
+  └──▶ TelemetryPanel  10 sensor rows → click → SensorDetailModal (live chart)
 
 MQTTAdapter  (when user connects real broker)
-  │  same payload shape as Worker
-  │  config stored in localStorage — no code changes needed
-  │  main.js pauses Worker on MQTT_CONNECTED
-  └──▶ same SensorState → same EventBus → zero changes downstream
+  │  config stored in localStorage via ConfigModal — no code changes needed
+  │  same payload shape as Worker — zero downstream changes
+  └──▶ same SensorState → same EventBus → same RuleEngine
+
+IncidentPanel  (simulator only)
+  └──▶ SensorWorker.scenario(name, durationMs) → sensor.worker.js overrides values
 ```
 
 Key design decisions:
 
-- **No framework** — plain ES Modules and classes. Maximum readability for forks.
-- **Worker isolation** — the Three.js render loop never competes with sensor simulation.
-- **Observable adapter** — `MQTTAdapter` emits 4 lifecycle events. Swap in any data source without touching the rest of the system.
-- **Deterministic rule engine** — zero download, zero latency. Rules are plain JS objects with a `condition()` function.
-- **Color as signal** — ISA-101 compliant. `--green`/`--amber`/`--red` are exclusively for process state. When something is colored, it means something.
-- **UI-configurable broker** — broker URL, credentials and plant ID are set from the `⚙ Settings` panel and persisted in `localStorage`. No code editing required.
+- **No framework** — plain ES Modules. Maximum readability for forks.
+- **Worker isolation** — the Three.js render loop never competes with simulation.
+- **Observable adapter** — 4 MQTT lifecycle events. Swap any data source without touching downstream.
+- **Deterministic rule engine** — zero latency. Threshold + trend rules in the same array.
+- **Color as signal** — ISA-101. `--green`/`--amber`/`--red` exclusively for process state.
+- **UI-configurable broker** — credentials never in code.
 
 ---
 
@@ -165,8 +218,13 @@ Key design decisions:
 
 ## Roadmap
 
-- **V1.1** — Historical charts per sensor, incident simulation mode, trend detection in rule engine
-- **V2.0** — [`feature/ai-advisor`](../../tree/feature/ai-advisor) branch: TinyLlama via WebLLM for natural language process diagnostics (opt-in, ~700MB download cached in IndexedDB)
+**V1.1 — Complete ✅**
+- Historical charts per sensor (live SVG sparklines)
+- Incident simulation mode (5 fault scenarios, 30s duration, auto-reset)
+- Trend detection in rule engine (linear regression over configurable time windows)
+
+**V2.0 — Planned**
+- [`feature/ai-advisor`](../../tree/feature/ai-advisor) branch: TinyLlama via WebLLM for natural language process diagnostics (opt-in, ~700MB cached in IndexedDB)
 
 ---
 
@@ -174,11 +232,11 @@ Key design decisions:
 
 | Layer | Tech | Why |
 |---|---|---|
-| Bundler | Vite | HMR without reloading WebGL. Static build to `dist/`. |
-| 3D | Three.js | WebGL2. Procedural model — no external assets, no license ambiguity. |
-| Realtime | Web Worker + MQTT.js | Worker protects the render loop. MQTT.js for broker connection. |
+| Bundler | Vite | HMR without reloading WebGL. Static build. |
+| 3D | Three.js | WebGL2. Procedural model — no assets, no license issues. |
+| Realtime | Web Worker + MQTT.js | Worker protects the render loop. |
 | Map | Leaflet + OSM | Free forever. No API key. |
-| Deploy | GitHub Pages / Vercel | Static build. Free, no VPS. |
+| Deploy | GitHub Pages / Vercel | Static build. Free. |
 
 ---
 
