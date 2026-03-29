@@ -1,6 +1,5 @@
 # Water Treatment Digital Twin — Starter Kit
 
-<!-- GIF del dashboard funcionando va aquí — capturar con Filter #1 en rojo -->
 <!-- ![WTP Digital Twin demo](docs/demo.gif) -->
 ![WTP Digital Twin](docs/cover.png)
 
@@ -12,7 +11,7 @@
 
 ## What is this
 
-A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, a rule engine that detects process anomalies, trend detection that predicts failures before they happen, and webhook alerts that notify your team when something goes wrong.
+A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, a rule engine with trend detection, webhook alerts, flexible payload mapping, Sparkplug B support, process KPIs, and Claude Desktop integration via MCP.
 
 No Docker, no server, no auth. Fork it, swap in your sensors, connect your real MQTT broker.
 
@@ -33,39 +32,29 @@ Open [http://localhost:5173](http://localhost:5173) — the simulator starts imm
 
 ## Features
 
-**Real-time 3D visualization**
-Procedural plant model in Three.js. Each mesh is bound to a sensor — when an alert fires, the corresponding 3D object glows. ISA-101 color coding: gray is normal, amber is warning, red is danger.
-
-**Rule engine with trend detection**
-15 rules evaluated every 500ms. Threshold rules catch active anomalies. Trend rules use linear regression to predict failures before they cross the threshold.
-
-**Webhook alerts**
-Get notified outside the browser when alerts fire. Configure any number of webhook URLs from the UI — no code changes. Works with Slack, Discord, n8n, Make, Zapier, or any URL accepting POST JSON.
-
-**Flexible payload mapping**
-Connect any MQTT broker regardless of payload format. Auto-detect handles Sparkplug-like arrays, flat fields, and nested objects. Custom mapping lets you define `data.process.flow` → `inlet_flow` with a UI.
-
-**Sensor history charts**
-Click any sensor row for a live chart of the last 3 minutes with warning/danger reference lines, min/avg/max stats, and 500ms update rate.
-
-**Alert history**
-Resolved alerts move to a History section with duration ("active 45s") and resolution timestamp — not just a live list.
-
-**Incident simulator**
-Trigger fault scenarios from the UI. Five built-in scenarios run for 30 seconds and reset automatically. Useful for demos and for testing alert rules.
-
-**UI-configurable broker**
-Set broker URL, credentials, and plant ID from the dashboard. Config saved in `localStorage`. No code changes needed.
+| Feature | Description |
+|---|---|
+| **3D visualization** | Procedural plant model. Meshes glow when alerts fire. ISA-101 color coding. |
+| **Rule engine** | 15 rules evaluated every 500ms. Threshold + trend detection via linear regression. |
+| **Alert history** | Resolved alerts move to History with duration and timestamp — not just a live list. |
+| **Webhook alerts** | POST to Slack, Discord, n8n, Make, Zapier when alerts fire. Configured from UI. |
+| **Payload mapping** | Auto-detect, flat, or custom field mapping. Connect any broker format without code. |
+| **Sparkplug B** | Native Sparkplug B decode (Ignition, Cirrus Link, modern PLCs). No extra deps. |
+| **Sensor history** | Click any sensor row for a live 3-minute chart with threshold reference lines. |
+| **Incident simulator** | Trigger fault scenarios from the UI. 5 scenarios, 30s duration, auto-reset. |
+| **Process KPIs** | Throughput, chlorination efficiency, time-in-warning, backwash count, and more. |
+| **Claude Desktop** | MCP server lets Claude query sensor data, alerts, KPIs and trends in real time. |
+| **UI-configurable** | Broker, credentials, webhooks, payload mapping — all from the dashboard, no code. |
 
 ---
 
 ## Connect your real MQTT broker
 
-**1.** Click **`Configure & Connect →`** in the MQTT panel.
+**1.** Click **`Configure & Connect →`** in the MQTT panel on the right side.
 
 **2.** Fill in Broker URL, Username, Password, Plant ID → **`Test & Connect →`**
 
-**3.** Publish your data to `wtp/plant/{plantId}/sensors`:
+**3.** Publish to `wtp/plant/{plantId}/sensors`:
 
 ```json
 {
@@ -85,9 +74,15 @@ Set broker URL, credentials, and plant ID from the dashboard. Config saved in `l
 }
 ```
 
-If your broker publishes a different format, click **`⇄ Payload`** in the topbar to configure the mapping. Paste a sample message and the auto-analyzer suggests the field mappings for you.
+If your broker publishes a different format, click **`⇄ Payload`** to configure field mapping. Paste a sample message and the auto-analyzer suggests mappings for you.
+
+### Sparkplug B
+
+If your devices use Sparkplug B (Ignition, Cirrus Link, modern PLCs), the adapter detects it automatically from the topic pattern `spBv1.0/...` and decodes the Protobuf payload natively. No extra libraries, no configuration needed.
 
 > Works with `ws://` and `wss://` brokers. For mutual TLS, you need a proxy — see [docs/mqtt-production.md](docs/mqtt-production.md).
+
+Full setup guide: [docs/mqtt-production.md](docs/mqtt-production.md)
 
 ---
 
@@ -95,15 +90,13 @@ If your broker publishes a different format, click **`⇄ Payload`** in the topb
 
 Click **`⚡ Webhooks`** in the topbar to configure alert notifications.
 
-Each webhook has a URL, a name, and the events it listens to:
-
 | Event | Fires when |
 |---|---|
 | `alert.danger` | A danger-level alert activates |
 | `alert.warning` | A warning-level alert activates |
 | `alert.resolved` | Any alert clears |
 
-Payload sent (verified working with webhook.site, Slack, Discord, n8n):
+Payload (verified working with webhook.site, Slack, Discord, n8n, Make):
 
 ```json
 {
@@ -124,26 +117,63 @@ Use the **Test →** button in the webhook form to verify your URL before saving
 
 ---
 
+## Claude Desktop integration
+
+Connect Claude Desktop to query your plant in real time.
+
+```bash
+# Terminal 1 — dashboard
+npm run dev
+
+# Terminal 2 — MCP bridge
+node mcp-bridge-server.js
+```
+
+Configure `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "wtp-digital-twin": {
+      "command": "node",
+      "args": ["/absolute/path/to/digital-twin-water/mcp-server.js"]
+    }
+  }
+}
+```
+
+Then ask Claude things like:
+
+- *"What's the current status of the water treatment plant?"*
+- *"Are there any active danger alerts? What's causing them?"*
+- *"What's the trend for filter_1_dp over the last 2 minutes?"*
+- *"How efficient has the chlorination been? What's the throughput?"*
+
+![Claude Desktop MCP demo 1](docs/mcp_demo_1.png)
+![Claude Desktop MCP demo 2](docs/mcp_demo_2.png)
+
+Full setup guide: [docs/claude-desktop-setup.md](docs/claude-desktop-setup.md)
+
+---
+
 ## Adding your own alert rules
 
 ```js
-// src/sensors/RuleEngine.js — add to the RULES array
+// src/sensors/RuleEngine.js — add to RULES[]
 
-// Simple threshold rule
+// Threshold rule
 {
-  id:        'high_pressure',
-  severity:  'warning',
+  id: 'high_pressure', severity: 'warning',
   sensorIds: ['outlet_pressure'],
-  message:   'Distribution pressure too high',
+  message: 'Distribution pressure too high',
   condition: (readings) => readings.outlet_pressure > 6.5,
 },
 
-// Trend rule — detects a rising pattern over a time window
+// Trend rule — linear regression over a time window
 {
-  id:        'pressure_rising',
-  severity:  'warning',
+  id: 'pressure_rising', severity: 'warning',
   sensorIds: ['outlet_pressure'],
-  message:   'Distribution pressure rising fast',
+  message: 'Distribution pressure rising fast',
   condition: (readings, state) => {
     const trend = state.getTrend('outlet_pressure', 60); // last 60 seconds
     if (!trend || trend.samples < 10) return false;
@@ -152,7 +182,7 @@ Use the **Test →** button in the webhook form to verify your URL before saving
 },
 ```
 
-`getTrend()` returns `{ slope, delta, deltaRel, direction, samples, mean, first, last }` via linear regression. The rule engine handles the full alert lifecycle — activate, persist, resolve, move to history.
+`getTrend()` returns `{ slope, delta, deltaRel, direction, samples, mean, first, last }`.
 
 ---
 
@@ -178,24 +208,29 @@ my_sensor: ['mesh_pump_station'],
 
 ```
 sensor.worker.js  (Web Worker — isolated from render loop)
-  │  500ms snapshots + incident scenarios
+  │  500ms snapshots + 5 incident scenarios
   ▼
 main.js → SensorState.update()     ← single source of truth + history buffer
         → EventBus.emit(SENSOR_UPDATE)
   │
-  ├──▶ RuleEngine      threshold + trend rules → RULE_TRIGGERED
-  │      └──▶ AlertPanel       active list + history
-  │      └──▶ AlertSystem      emissive glow on 3D meshes
-  │      └──▶ WebhookManager   POST to configured URLs (text/plain, no CORS preflight)
+  ├──▶ RuleEngine      threshold rules + trend rules (getTrend)
+  │      └──▶ AlertPanel        active list + history section
+  │      └──▶ AlertSystem       emissive glow on 3D meshes
+  │      └──▶ WebhookManager    POST to configured URLs (text/plain, no preflight)
   │
-  ├──▶ SceneUpdater    ColorMapper → mesh.material.color
+  ├──▶ KPIEngine       throughput · chlorination eff · time-in-warning · backwashes
+  │      └──▶ KPIPanel          modal with bar chart + stats grid
+  │      └──▶ MCPBridge         push state to mcp-bridge-server every 1s
+  │
+  ├──▶ SceneUpdater    ColorMapper → mesh.material.color per tick
   └──▶ TelemetryPanel  rows → click → SensorDetailModal (live SVG chart)
 
 MQTTAdapter  (real broker)
-  │  PayloadMapper.transform() — auto/flat/custom format handling
+  │  topic = spBv1.0/... → SparkplugParser.parse() (Protobuf decode)
+  │  topic = standard   → PayloadMapper.transform() (auto/flat/custom)
   └──▶ same SensorState → same pipeline → zero downstream changes
 
-IncidentPanel  → SensorWorker.scenario(name, 30s) → worker overrides values
+Claude Desktop ← mcp-server.js ← mcp-state.json ← mcp-bridge-server ← MCPBridge
 ```
 
 ---
@@ -219,17 +254,14 @@ IncidentPanel  → SensorWorker.scenario(name, 30s) → worker overrides values
 
 ## Roadmap
 
-**V1.1 — Complete ✅** Historical charts · Incident simulator · Trend detection
+**V1.1 ✅** Historical charts · Incident simulator · Trend detection
 
-**V1.2 — Complete ✅** Webhook alerts · Flexible payload mapping
+**V1.2 ✅** Webhook alerts · Flexible payload mapping
 
-**V1.3 — Planned**
-- Sparkplug B payload support (Ignition, Cirrus Link, modern PLCs)
-- Process KPIs (throughput, time-in-warning, chlorination efficiency)
-- MCP server for Claude Desktop integration
+**V1.3 ✅** Sparkplug B · Process KPIs · Claude Desktop MCP integration
 
 **V2.0 — Planned**
-- [`feature/ai-advisor`](../../tree/feature/ai-advisor): TinyLlama via WebLLM, natural language process diagnostics
+[`feature/ai-advisor`](../../tree/feature/ai-advisor): TinyLlama via WebLLM, natural language process diagnostics (~700MB, opt-in)
 
 ---
 
@@ -238,9 +270,11 @@ IncidentPanel  → SensorWorker.scenario(name, 30s) → worker overrides values
 | Layer | Tech | Why |
 |---|---|---|
 | Bundler | Vite | HMR without reloading WebGL |
-| 3D | Three.js | WebGL2, procedural model |
+| 3D | Three.js | WebGL2, procedural model, no assets |
 | Realtime | Web Worker + MQTT.js | Worker isolates render loop |
+| Protocols | MQTT + Sparkplug B | Native Protobuf decode, no extra deps |
 | Map | Leaflet + OSM | Free, no API key |
+| AI integration | MCP protocol | Claude Desktop reads live plant data |
 | Deploy | GitHub Pages / Vercel | Static build, free |
 
 ---

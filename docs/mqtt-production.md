@@ -1,23 +1,37 @@
 # Connecting a Real MQTT Broker
 
-This guide covers connecting the digital twin to a real MQTT broker for production use.
+This guide covers connecting the digital twin to a real MQTT broker, including standard MQTT, Sparkplug B, and custom payload formats.
 
 ---
 
-## Topic structure
+## Configuring the broker from the dashboard
 
-The adapter subscribes to a single wildcard topic. All sensors arrive in a single JSON message per publication — one topic, one snapshot, all sensors.
+No code editing required. Click **`Configure & Connect →`** in the MQTT panel and fill in:
 
-```
-Topic: wtp/plant/{plantId}/sensors
-Example: wtp/plant/plant-01/sensors
-```
+| Field | Example |
+|---|---|
+| Broker URL | `wss://your-cluster.hivemq.cloud:8884/mqtt` |
+| Username | `your-username` |
+| Password | `your-password` |
+| Plant ID | `plant-01` |
 
-`plantId` is configurable from the dashboard settings panel (default: `plant-01`). This allows multiple users of the starter kit to connect different plants to the same demo broker without topic collisions.
+Click **`Test & Connect →`** — the dashboard connects live and shows the result. Config is saved in `localStorage` and restored on every page reload.
+
+> **Note:** The dashboard only supports `ws://` and `wss://` (WebSocket). For installations with mutual TLS (client certificates), you need an intermediate proxy — see the TLS section below.
 
 ---
 
-## Payload format
+## Standard MQTT format
+
+### Topic structure
+
+```
+wtp/plant/{plantId}/sensors
+```
+
+Example: `wtp/plant/plant-01/sensors`
+
+### Payload format
 
 ```json
 {
@@ -38,26 +52,64 @@ Example: wtp/plant/plant-01/sensors
 ```
 
 - `timestamp` — Unix milliseconds (`int(time.time() * 1000)` in Python)
-- `readings` — object with all sensor IDs as keys, numeric values
+- `readings` — object with sensor IDs as keys, numeric values
 
-You don't need to publish all 10 sensors in every message. Missing keys are ignored gracefully. But publishing all of them ensures the rule engine can evaluate correlation rules correctly.
+You don't need to include all 10 sensors. Missing keys are ignored. But publishing all of them ensures correlation rules in the RuleEngine evaluate correctly.
 
 ---
 
-## Configuring the broker from the dashboard
+## Sparkplug B support
 
-No code editing required. Click **`⚙ Settings`** in the top bar and fill in:
+If your devices use **Sparkplug B** (Ignition, Cirrus Link, Opto 22, modern PLCs), the adapter detects it automatically.
 
-| Field | Example |
+**No configuration needed.** The adapter checks the topic pattern:
+
+```
+spBv1.0/{groupId}/DDATA/{edgeNodeId}/{deviceId}
+spBv1.0/{groupId}/DBIRTH/{edgeNodeId}/{deviceId}
+```
+
+When a Sparkplug B topic is detected, the payload is decoded using the built-in Protobuf parser (`src/utils/SparkplugParser.js`). Metric names are extracted and cleaned automatically:
+
+- `WTP/InletFlow` → `wtpinletflow`
+- `inlet_flow` → `inlet_flow`
+- `Process/Filter1/DP` → `dp`
+
+If the metric names from your device don't match the expected sensor IDs (`inlet_flow`, `filter_1_dp`, etc.), use the **`⇄ Payload`** custom mapper to define explicit field mappings after the Sparkplug decode.
+
+**Supported Sparkplug B data types:**
+Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float, Double, Boolean → converted to numeric
+
+---
+
+## Custom payload formats
+
+If your broker publishes a format different from the standard `{ timestamp, readings }`, click **`⇄ Payload`** in the topbar.
+
+### Auto-detect mode (default)
+
+Handles automatically:
+- Native format: `{ readings: { flow: 142.3 } }`
+- Sparkplug-like arrays: `{ metrics: [{ name: "flow", value: 142.3 }] }`
+- Sensor arrays: `{ sensors: [{ id: "flow", value: 142.3 }] }`
+- Nested data: `{ data: { process: { flow: 142.3 } } }`
+- Flat fields: `{ flow: 142.3, ph: 7.1, ts: 1234567890 }`
+
+### Flat mode
+
+All numeric fields at the root level become sensor readings. Non-numeric fields and common metadata keys (`timestamp`, `id`, `device`, etc.) are skipped.
+
+### Custom mapping mode
+
+Define explicit field mappings using dot notation:
+
+| From (your payload) | To (sensor ID) |
 |---|---|
-| Broker URL | `wss://your-cluster.hivemq.cloud:8884/mqtt` |
-| Username | `your-username` |
-| Password | `your-password` |
-| Plant ID | `plant-01` |
+| `data.process.flow` | `inlet_flow` |
+| `sensors[0].value` | `raw_turbidity` |
+| `ph` | `coag_ph` |
 
-Click **`Test & Connect →`** — the dashboard connects live and shows the result. If successful, the configuration is saved in `localStorage` and restored automatically on every page reload.
-
-> **Note:** The dashboard only supports `ws://` and `wss://` (WebSocket). For installations with mutual TLS (client certificates), you need an intermediate proxy — see the TLS section below.
+Paste a sample message in the **Analyze** section and the panel suggests mappings automatically.
 
 ---
 
@@ -67,19 +119,23 @@ Click **`Test & Connect →`** — the dashboard connects live and shows the res
 pip install paho-mqtt
 ```
 
-### Minimal example
+### Standard format
 
 ```python
 import paho.mqtt.client as mqtt
 import json
 import time
 
-BROKER = "broker.emqx.io"
-PORT   = 1883
+BROKER = "your-cluster.hivemq.cloud"
+PORT   = 8883
+USER   = "your-username"
+PASS   = "your-password"
 PLANT  = "plant-01"
 TOPIC  = f"wtp/plant/{PLANT}/sensors"
 
 client = mqtt.Client()
+client.username_pw_set(USER, PASS)
+client.tls_set()  # for wss:// / mqtts://
 client.connect(BROKER, PORT, keepalive=60)
 
 while True:
@@ -99,28 +155,23 @@ while True:
         }
     }
     client.publish(TOPIC, json.dumps(payload))
-    time.sleep(0.5)  # 500ms interval — matches the simulator tick rate
+    time.sleep(0.5)
 ```
 
-### With authentication
+### With flat format (using ⇄ Payload auto-detect)
 
 ```python
-client = mqtt.Client()
-client.username_pw_set("your-username", "your-password")
-client.connect(BROKER, PORT)
+payload = {
+    "ts":           int(time.time() * 1000),
+    "inlet_flow":   142.3,
+    "filter_1_dp":  98.0,
+    "chlorine":     1.8,
+    "tank":         67.0,
+}
+client.publish(TOPIC, json.dumps(payload))
 ```
 
-### With TLS (wss://)
-
-```python
-import ssl
-
-client = mqtt.Client(transport="websockets")
-client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
-client.connect("your-broker.com", 8884)
-```
-
-> **Note on mutual TLS:** Browsers cannot perform mutual TLS (client certificates) over WebSocket. If your installation requires mutual TLS, you need an intermediate proxy (e.g. nginx with `proxy_pass` to the broker's internal endpoint). The proxy handles the client certificate; the browser connects to the proxy over standard `wss://`.
+Configure `⇄ Payload` → Flat mode, and set timestamp field to `ts`.
 
 ---
 
@@ -130,11 +181,11 @@ client.connect("your-broker.com", 8884)
 |---|---|---|
 | EMQX public | `ws://broker.emqx.io:8083/mqtt` | Free, no auth, shared |
 | EMQX public (TLS) | `wss://broker.emqx.io:8084/mqtt` | Free, no auth, shared |
-| Mosquitto (local) | `ws://localhost:9001/mqtt` | Requires WebSocket listener configured |
-| HiveMQ Cloud | `wss://your-cluster.s1.eu.hivemq.cloud:8884/mqtt` | Free tier available, auth required |
+| HiveMQ Cloud | `wss://your-cluster.s1.eu.hivemq.cloud:8884/mqtt` | Free tier, auth required |
 | HiveMQ public | `wss://broker.hivemq.com:8884/mqtt` | Free, no auth, shared |
+| Mosquitto (local) | `ws://localhost:9001/mqtt` | Requires WebSocket listener |
 
-For local Mosquitto, add this to `mosquitto.conf`:
+For local Mosquitto, add to `mosquitto.conf`:
 
 ```
 listener 9001
@@ -143,14 +194,37 @@ protocol websockets
 
 ---
 
-## Reading from a PLC or SCADA system
+## Mutual TLS (client certificates)
 
-If your plant already has a SCADA system or PLC publishing to MQTT, you may need a thin adapter to transform the existing topic/payload structure into the format above.
+Browsers cannot perform mutual TLS (client certificates) over WebSocket. If your installation requires it, use an nginx proxy:
 
-A minimal Node.js bridge:
+```nginx
+server {
+    listen 8884 ssl;
+    ssl_certificate     /path/to/server.crt;
+    ssl_certificate_key /path/to/server.key;
+    ssl_client_certificate /path/to/ca.crt;
+    ssl_verify_client on;
+
+    location / {
+        proxy_pass          http://your-internal-broker:1883;
+        proxy_http_version  1.1;
+        proxy_set_header    Upgrade $http_upgrade;
+        proxy_set_header    Connection "Upgrade";
+    }
+}
+```
+
+The browser connects to nginx over standard `wss://`. nginx handles the mutual TLS with the broker using the client certificate.
+
+---
+
+## Node.js bridge for PLC/SCADA systems
+
+If your plant has an existing SCADA system or PLC publishing to MQTT on a different topic/format, use a thin Node.js bridge to adapt:
 
 ```js
-// bridge.js — subscribes to existing PLC topics, republishes in WTP Twin format
+// bridge.js — reads from existing PLC topics, republishes in WTP format
 import mqtt from 'mqtt';
 
 const client = mqtt.connect('mqtt://your-plc-broker:1883');
@@ -162,20 +236,19 @@ client.on('connect', () => {
 const readings = {};
 
 client.on('message', (topic, message) => {
-  // Map your existing topic structure to sensor IDs
   const sensorMap = {
     'plc/sensors/flow1':    'inlet_flow',
     'plc/sensors/turb_raw': 'raw_turbidity',
+    'plc/sensors/ph':       'coag_ph',
+    'plc/sensors/dp_f1':    'filter_1_dp',
     // ... add your mappings
   };
 
   const sensorId = sensorMap[topic];
-  if (sensorId) {
-    readings[sensorId] = parseFloat(message.toString());
-  }
+  if (sensorId) readings[sensorId] = parseFloat(message.toString());
 });
 
-// Publish a complete snapshot every 500ms
+// Publish complete snapshot every 500ms
 setInterval(() => {
   if (Object.keys(readings).length > 0) {
     client.publish('wtp/plant/plant-01/sensors', JSON.stringify({
@@ -185,3 +258,24 @@ setInterval(() => {
   }
 }, 500);
 ```
+
+Alternatively, use the **`⇄ Payload`** custom mapper in the dashboard to handle the format transformation without any bridge code.
+
+---
+
+## Testing with the included server.js
+
+The repo includes `server.js` — a Node.js MQTT publisher that simulates a real plant publishing to HiveMQ Cloud:
+
+```bash
+# In a separate folder from the dashboard
+npm install  # install express and mqtt
+node server.js
+```
+
+Visit `http://localhost:3000` for a control panel with buttons to:
+- Force **Filter #1 Clog** (DP → 180 mbar, triggers warning)
+- Force **Filter #1 Critical** (DP → 205 mbar, triggers danger)
+- **Reset** to normal values
+
+Configure `server.js` with your HiveMQ credentials at the top of the file, then click **`Configure & Connect →`** in the dashboard with the same broker URL and credentials.

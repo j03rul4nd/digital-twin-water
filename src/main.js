@@ -47,6 +47,9 @@ import IncidentPanel    from './ui/IncidentPanel.js';
 import WebhookPanel     from './ui/WebhookPanel.js';
 import PayloadMapperPanel from './ui/PayloadMapperPanel.js';
 import WebhookManager   from './utils/WebhookManager.js';
+import KPIEngine        from './sensors/KPIEngine.js';
+import KPIPanel         from './ui/KPIPanel.js';
+import MCPBridge        from './utils/MCPBridge.js';
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -66,6 +69,7 @@ async function init() {
   // Listos para recibir datos antes de que llegue el primer tick.
   SensorState.reset(); // garantiza estado limpio al arrancar
   RuleEngine.init();
+  KPIEngine.init();
 
   // ── Paso 4: UI ────────────────────────────────────────────────────────────
   // Subscripciones al EventBus registradas antes del primer tick.
@@ -85,6 +89,8 @@ async function init() {
   WebhookManager.init();
   WebhookPanel.init();
   PayloadMapperPanel.init();
+  KPIPanel.init();
+  MCPBridge.init();
 
   // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe
   // (en Fase 3 este bloque estaba comentado — aquí se activa)
