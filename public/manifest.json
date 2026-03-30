@@ -1,0 +1,42 @@
+{
+  "name": "WTP Digital Twin",
+  "short_name": "WTP Twin",
+  "description": "Water Treatment Plant Digital Twin — real-time monitoring and process visualization",
+  "start_url": "/digital-twin-water/",
+  "scope": "/digital-twin-water/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b0c0e",
+  "theme_color": "#0b0c0e",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "docs/cover.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "WTP Digital Twin Dashboard"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Dashboard",
+      "url": "/digital-twin-water/",
+      "description": "Open the plant monitoring dashboard"
+    }
+  ]
+}

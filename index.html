@@ -4,6 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WTP Digital Twin</title>
+  <meta name="description" content="Water Treatment Plant Digital Twin — real-time monitoring" />
+  <meta name="theme-color" content="#0b0c0e" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="/favicon.ico">
+
+
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
 
   <!-- Fuentes — JetBrains Mono para valores numéricos, IBM Plex Sans para UI -->
   <!-- Evitar Inter genérico — señal de AI slop. JetBrains Mono tiene mejor
@@ -1771,5 +1779,15 @@
 
   <!-- Entry point -->
   <script type="module" src="/src/main.js"></script>
+
+  <!-- PWA Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .catch(() => {}); // silencioso si falla — la app funciona igual
+      });
+    }
+  </script>
 </body>
 </html>

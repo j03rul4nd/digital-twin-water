@@ -37,41 +37,33 @@ const SceneManager = {
       antialias: true,
       alpha: true,           // fondo transparente — se funde con --bg del CSS
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // cap a 2x
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.setClearColor(0x000000, 0);  // transparente, el CSS pone el fondo
-    this.renderer.shadowMap.enabled = false;   // sin sombras — no las necesitamos y cuestan GPU
+    this.renderer.setClearColor(0x0b0e12, 1);
+    this.renderer.shadowMap.enabled = false; // ModelFactory lo activa con sombras soft
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
     // ─── Escena ───────────────────────────────────────────────────────────────
     this.scene = new THREE.Scene();
-    this.scene.background = null; // transparente
+    this.scene.background = new THREE.Color(0x0b0e12);
 
     // ─── Cámara ───────────────────────────────────────────────────────────────
-    // Vista isométrica aproximada que muestra toda la planta sin recortar.
-    // Decisión 17 de PRODUCT.md: position(0, 22, 30), lookAt(0, 0, 10)
+    // Ángulo ligeramente más bajo y lateral — más cinematográfico que isométrico puro
     this.camera = new THREE.PerspectiveCamera(
-      45,                                              // FOV
-      container.clientWidth / container.clientHeight,  // aspect ratio
-      0.1,                                             // near
-      500,                                             // far
+      42,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      500,
     );
-    this.camera.position.set(0, 22, 30);
-    this.camera.lookAt(0, 0, 10);
+    this.camera.position.set(-5, 18, 32);
+    this.camera.lookAt(1, 0, 10);
 
-    // ─── Luces ────────────────────────────────────────────────────────────────
-    // Decisión 17: AmbientLight(0xffffff, 0.4) + DirectionalLight(0xffffff, 0.8)
-    // Sencillo pero suficiente para que MeshStandardMaterial muestre
-    // los colores de ColorMapper correctamente.
-
-    // Luz ambiental base — evita sombras completamente negras
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+    // ─── Luces base mínimas ───────────────────────────────────────────────────
+    // ModelFactory añade el setup completo de iluminación en build().
+    // Aquí solo ponemos lo mínimo para que el primer frame no sea negro.
+    const ambient = new THREE.AmbientLight(0x1a2535, 1.0);
     this.scene.add(ambient);
-
-    // Luz direccional principal — simula sol desde arriba-derecha
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(10, 20, 10);
-    this.scene.add(sun);
 
     // ─── OrbitControls ────────────────────────────────────────────────────────
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
