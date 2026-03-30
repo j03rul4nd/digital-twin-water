@@ -1663,6 +1663,373 @@
       border-top: 1px solid var(--line);
       text-align: center;
     }
+
+
+
+    /* ═══════════════════════════════════════════════════════════════════
+      RESPONSIVE MOBILE — añadir al final de la sección <style> en index.html
+      Breakpoint principal: 768px
+      ═══════════════════════════════════════════════════════════════════ */
+
+    /* ── Topbar responsive ──────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      #topbar {
+        padding: 0 8px;
+        gap: 0;
+        overflow: hidden;
+      }
+
+      /* Ocultar elementos secundarios del topbar en móvil */
+      .topbar-sep:nth-child(n+4),
+      .topbar-tick,
+      #btn-docs,
+      #btn-export {
+        display: none;
+      }
+
+      /* Comprimir separadores visibles */
+      .topbar-sep {
+        margin: 0 6px;
+      }
+
+      .topbar-brand-name {
+        font-size: 10px;
+      }
+
+      /* Botones del topbar — más pequeños en móvil */
+      .topbar-btn {
+        font-size: 9px;
+        padding: 3px 6px;
+      }
+
+      /* Alert chip — más compacto */
+      #alert-chip {
+        font-size: 9px;
+        padding: 2px 6px;
+      }
+
+      /* Plant ID — ocultar label, solo input */
+      .topbar-plant-label {
+        display: none;
+      }
+
+      #plant-id-input {
+        width: 60px;
+        font-size: 10px;
+      }
+    }
+
+    /* ── Panels — full layout mobile ───────────────────────────────────── */
+    @media (max-width: 768px) {
+
+      /* El viewport 3D sigue siendo fullscreen — no cambia */
+      #viewport {
+        top: 40px;
+        left: 0;
+        right: 0;
+        /* Dejar espacio para el bottom tab bar */
+        bottom: 56px;
+      }
+
+      /* ── Panel izquierdo — bottom sheet ─────────────────────────────── */
+      #panel-left {
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 56px;
+        width: 100%;
+        height: auto;
+        max-height: 55vh;
+        border-radius: 12px 12px 0 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        z-index: 20;
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        /* Drag handle visual */
+        padding-top: 0;
+      }
+
+      #panel-left.mobile-open {
+        transform: translateY(0);
+      }
+
+      /* Handle de arrastre en el panel izquierdo */
+      #panel-left::before {
+        content: '';
+        display: block;
+        width: 32px;
+        height: 3px;
+        background: var(--line2);
+        border-radius: 2px;
+        margin: 8px auto 0;
+        flex-shrink: 0;
+      }
+
+      /* Panel izquierdo en móvil — scroll interno */
+      #telemetry-body {
+        max-height: calc(55vh - 60px);
+        overflow-y: auto;
+      }
+
+      /* ── Panel derecho — bottom sheet ───────────────────────────────── */
+      #panel-right {
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 56px;
+        width: 100%;
+        height: auto;
+        max-height: 65vh;
+        border-radius: 12px 12px 0 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        z-index: 20;
+        gap: 0;
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        /* Fondo para que tape la escena */
+        background: var(--bg1);
+      }
+
+      #panel-right.mobile-open {
+        transform: translateY(0);
+      }
+
+      /* Handle de arrastre en el panel derecho */
+      #panel-right::before {
+        content: '';
+        display: block;
+        width: 32px;
+        height: 3px;
+        background: var(--line2);
+        border-radius: 2px;
+        margin: 8px auto 4px;
+        flex-shrink: 0;
+      }
+
+      /* Sub-paneles en móvil — sin radius, sin margen entre ellos */
+      #panel-right .sub-panel {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+      }
+
+      #panel-right .sub-panel:first-child {
+        border-top: none;
+      }
+
+      /* Panel de alertas — scroll en móvil */
+      #panel-alerts {
+        flex: 0 0 auto;
+        max-height: 35vh;
+        overflow-y: auto;
+        min-height: 0;
+      }
+
+      /* Panel MQTT — compacto */
+      #panel-mqtt {
+        flex-shrink: 0;
+      }
+
+      /* Minimap en móvil — altura reducida */
+      #panel-minimap {
+        height: 100px;
+        flex-shrink: 0;
+      }
+
+      /* ── Tab bar — navegación bottom ────────────────────────────────── */
+      /* Se inyecta por JS (MobileTabBar) */
+      #mobile-tab-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: var(--bg1);
+        border-top: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+        z-index: 30;
+        padding: 0 8px;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+
+      .mobile-tab {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        flex: 1;
+        height: 100%;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 6px 4px;
+        border-radius: 6px;
+        transition: background-color 0.15s;
+        position: relative;
+      }
+
+      .mobile-tab:active {
+        background: var(--bg3);
+      }
+
+      .mobile-tab.is-active {
+        background: var(--bg3);
+      }
+
+      .mobile-tab-icon {
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .mobile-tab-label {
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-size: 9px;
+        color: var(--text2);
+        line-height: 1;
+        transition: color 0.15s;
+      }
+
+      .mobile-tab.is-active .mobile-tab-label {
+        color: var(--blue);
+      }
+
+      /* Badge de alertas en el tab */
+      .mobile-tab-badge {
+        position: absolute;
+        top: 4px;
+        right: calc(50% - 16px);
+        min-width: 14px;
+        height: 14px;
+        background: var(--red);
+        border-radius: 7px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 8px;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 3px;
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: none;
+      }
+
+      .mobile-tab-badge.visible {
+        opacity: 1;
+      }
+
+      /* Overlay de fondo al abrir panels */
+      #mobile-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 15;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+
+      #mobile-overlay.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* ── Ajustes de modales en móvil ────────────────────────────────── */
+      #config-modal,
+      #sensor-detail-modal,
+      #webhook-modal,
+      #mapper-modal,
+      #kpi-modal {
+        width: calc(100vw - 16px);
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+
+      /* KPI modal — grid responsive */
+      .kpi-grid-top {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .kpi-grid-secondary {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      /* Incident panel — reposicionar */
+      #incident-panel {
+        bottom: 68px; /* por encima del tab bar */
+        left: 8px;
+        right: 8px;
+        transform: none;
+        min-width: unset;
+        max-width: unset;
+      }
+
+      /* Sensor detail modal — gráfico más pequeño */
+      #sd-chart {
+        height: 90px;
+      }
+    }
+
+    /* ── Ajustes para pantallas muy pequeñas (< 375px) ─────────────────── */
+    @media (max-width: 375px) {
+      .topbar-brand-name {
+        display: none;
+      }
+
+      .topbar-btn {
+        padding: 3px 5px;
+        font-size: 8px;
+      }
+
+      #btn-kpis,
+      #btn-webhooks,
+      #btn-payload-mapper {
+        display: none;
+      }
+    }
+
+    /* ── Landscape móvil — ajustes para uso horizontal ─────────────────── */
+    @media (max-width: 768px) and (orientation: landscape) {
+      #panel-left,
+      #panel-right {
+        max-height: 70vh;
+      }
+
+      #telemetry-body {
+        max-height: calc(70vh - 60px);
+      }
+
+      #panel-alerts {
+        max-height: 25vh;
+      }
+
+      #panel-minimap {
+        height: 80px;
+      }
+    }
+
+    /* ── Asegurar que en desktop nada de lo mobile afecta ───────────────── */
+    @media (min-width: 769px) {
+      #mobile-tab-bar,
+      #mobile-overlay {
+        display: none !important;
+      }
+
+      #panel-left,
+      #panel-right {
+        transform: none !important;
+      }
+    }
+
   </style>
 </head>
 <body>

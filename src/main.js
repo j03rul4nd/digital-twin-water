@@ -51,6 +51,9 @@ import KPIEngine        from './sensors/KPIEngine.js';
 import KPIPanel         from './ui/KPIPanel.js';
 import MCPBridge        from './utils/MCPBridge.js';
 
+import MobileTabBar from './ui/MobileTabBar.js';
+
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
@@ -82,6 +85,7 @@ async function init() {
   Toolbar.init();
   MQTTPanel.init();
   MiniMap.init();
+  MobileTabBar.init();
   DataExporter.init();
   ConfigModal.init();
   SensorDetailModal.init();

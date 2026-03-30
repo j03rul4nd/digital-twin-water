@@ -6,6 +6,9 @@
  *
  * El botón "Configure & Connect →" abre ConfigModal directamente.
  * El usuario siempre sabe dónde está y qué hacer a continuación.
+ *
+ * Mobile: no hay cambios en la lógica — el CSS responsive se encarga
+ * de reposicionar el panel. El botón sigue funcionando igual.
  */
 
 import EventBus       from '../core/EventBus.js';
