@@ -3,7 +3,7 @@
 
 > Documento vivo. Actualizar cada vez que se tome una decisión técnica o cambie la arquitectura.
 >
-> Última actualización: Iteración 6 (API de NoiseGenerator, composición visual de la escena 3D, topic structure y formato de payload MQTT real)
+> Última actualización: Iteración 7 (MCP integration, UI panels de configuración, KPIEngine, PayloadMapper, WebhookManager, Sparkplug support)
 
 ---
 
@@ -860,51 +860,108 @@ digital-twin-water/
 │
 ├── index.html
 ├── vite.config.js
+├── package.json
+├── package-lock.json
 ├── README.md
+├── CONTRIBUTING.md
+├── design.md
+├── progress.md
+├── mcp-server.js              ← MCP server para integración con Claude
+├── mcp-bridge-server.js       ← Bridge server para MCP
+│
+├── .github/
+│   └── workflows/
+│       └── deploy.yml         ← CI/CD pipeline (GitHub Actions)
+│
+├── public/                     ← assets estáticos para PWA
+│   ├── favicon.svg
+│   ├── icon.svg
+│   ├── cover.png
+│   ├── manifest.json
+│   ├── sw.js                  ← service worker
+│   └── icons/
+│       ├── icon_192.png
+│       └── icon_512.png
+│
+├── docs/                       ← documentación de guías
+│   ├── mqtt-production.md      ← guía de configuración MQTT en producción
+│   ├── claude-desktop-setup.md ← setup de Claude Desktop
+│   ├── 3dmodel.png
+│   ├── charts.png
+│   ├── cover.png
+│   ├── cover_2.png
+│   ├── kpis.png
+│   ├── mcp_demo_1.png
+│   └── mcp_demo_2.png
 │
 └── src/
-    ├── main.js                 ← entry point, orquesta init() con orden explícito (Decisión 11)
+    ├── main.js                 ← entry point, orquesta init() con orden explícito
+    ├── style.css               ← estilos globales
     │
     ├── core/
     │   ├── SceneManager.js     ← Three.js: renderer, cámara, luces
-    │   ├── ModelFactory.js     ← planta WTP procedural (MeshStandardMaterial — necesario para emissive)
-    │   ├── AnimationLoop.js    ← RAF loop con delta time (arranca en paso 2 de init)
-    │   ├── EventBus.js         ← notificaciones entre módulos (no estado)
-    │   └── events.js           ← catálogo EVENTS + payloads documentados + EVENT_CONTRACT_VERSION ★
+    │   ├── ModelFactory.js     ← planta WTP procedural (MeshStandardMaterial)
+    │   ├── AnimationLoop.js    ← RAF loop con delta time
+    │   ├── EventBus.js         ← notificaciones entre módulos
+    │   └── events.js           ← catálogo de eventos + EVENT_CONTRACT_VERSION ★
     │
     ├── sensors/
-    │   ├── SensorConfig.js     ← definición de los 10 sensores WTP, rangos y validador dev mode ★
-    │   ├── SensorState.js      ← singleton: estado actual + circular buffer + isReady() + reset() ★
+    │   ├── SensorConfig.js     ← definición de los 10 sensores WTP + rangos ★
+    │   ├── SensorState.js      ← singleton: estado + circular buffer + isReady() ★
     │   ├── SensorSceneMap.js   ← binding sensor ID → nombre de mesh 3D ★
-    │   ├── sensor.worker.js    ← simulación con correlaciones causales + política valores inválidos ★
-    │   ├── MQTTAdapter.js      ← simulated ↔ real broker (ws/wss + ciclo de vida eventos) ★
-    │   └── RuleEngine.js       ← array RULES[] + evaluación + activeAlerts + getActiveAlerts() ★
+    │   ├── SensorWorker.js     ← manejo de web workers
+    │   ├── sensor.worker.js    ← simulación con correlaciones causales ★
+    │   ├── MQTTAdapter.js      ← simulated ↔ real broker (ws/wss) ★
+    │   ├── RuleEngine.js       ← array RULES[] + evaluación + activeAlerts ★
+    │   └── KPIEngine.js        ← cálculo de KPIs y métricas de rendimiento
     │
     ├── scene/
-    │   ├── ColorMapper.js      ← valor numérico → material.color (nunca toca emissive)
-    │   ├── AlertSystem.js      ← overlay visual vía emissiveIntensity (nunca toca color)
-    │   └── SceneUpdater.js     ← recibe eventos, coordina ColorMapper y AlertSystem via SensorSceneMap
+    │   ├── ColorMapper.js      ← valor numérico → material.color
+    │   ├── AlertSystem.js      ← overlay visual vía emissiveIntensity
+    │   └── SceneUpdater.js     ← coordina ColorMapper y AlertSystem
     │
     ├── ui/
-    │   ├── TelemetryPanel.js   ← comprueba isReady(), muestra "—" hasta primer tick
-    │   ├── AlertPanel.js       ← llama getActiveAlerts() en init() para recuperar estado
-    │   ├── MiniMap.js          ← Leaflet con ubicación de planta
-    │   └── Toolbar.js          ← controles de cámara, settings y estado MQTT (escucha MQTT_* desde init)
+    │   ├── TelemetryPanel.js   ← panel de telemetría en tiempo real
+    │   ├── AlertPanel.js       ← panel de alertas activas
+    │   ├── IncidentPanel.js    ← panel de gestión de incidentes
+    │   ├── KPIPanel.js         ← panel de visualización de KPIs
+    │   ├── MiniMap.js          ← mapa con ubicación de planta (Leaflet)
+    │   ├── MobileTabBar.js     ← barra de tabs para mobile
+    │   ├── Toolbar.js          ← controles de cámara y configuración
+    │   ├── ConfigModal.js      ← modal de configuración general
+    │   ├── SensorDetailModal.js ← modal de detalles de sensor
+    │   ├── MQTTPanel.js        ← panel de conexión/estado MQTT
+    │   ├── PayloadMapperPanel.js ← panel de mapeo de payloads
+    │   └── WebhookPanel.js     ← panel de gestión de webhooks
     │
     └── utils/
-        ├── NoiseGenerator.js   ← genera ruido suavizado (Perlin o similar), reutilizable
-        └── DataExporter.js     ← export JSON/CSV desde SensorState.history (maneja history vacío)
+        ├── NoiseGenerator.js   ← generador de ruido suavizado (Perlin)
+        ├── DataExporter.js     ← export JSON/CSV desde historial
+        ├── MCPBridge.js        ← comunicación con servidor MCP
+        ├── PayloadMapper.js    ← mapeo de payloads MQTT personalizados
+        ├── SparkplugParser.js  ← parser para formato Sparkplug
+        └── WebhookManager.js   ← gestión de webhooks outbound
 ```
 
-> ★ Archivos nuevos o ampliados respecto a la iteración anterior.
+> ★ Archivos críticos o nuevos en esta iteración.
 >
-> `events.js` es el primero que debe existir — todos los demás lo importan.
+> **Archivos de contrato (deben existir primero):**
+> - `events.js` ← todos los módulos lo importan
+> - `SensorConfig.js`, `SensorState.js`, `SensorSceneMap.js` ← contratos de arquitectura antes de implementar consumers
 >
-> `SensorConfig.js`, `SensorState.js` y `SensorSceneMap.js` son contratos de arquitectura — deben existir antes de implementar cualquier módulo que consuma datos o actualice la escena.
+> **MCP Integration (nuevos en V1.1):**
+> - `mcp-server.js`, `mcp-bridge-server.js` ← integración con Claude Desktop
+> - `MCPBridge.js`, `PayloadMapper.js`, `SparkplugParser.js` ← utilidades MCP
 >
-> Sin carpeta `ai/` en el MVP. Aparece en la rama `feature/ai-advisor` (V2.0).
+> **UI Panels (nuevos en V1.1):**
+> - `ConfigModal.js`, `SensorDetailModal.js`, `IncidentPanel.js`, `KPIPanel.js` ← modales y paneles
+> - `MQTTPanel.js`, `PayloadMapperPanel.js`, `WebhookPanel.js` ← paneles de configuración
+> - `MobileTabBar.js` ← soporte mobile responsive
 >
-> `ModelFactory.js` debe usar `MeshStandardMaterial` en todos los meshes — requisito de `AlertSystem` para poder usar `emissiveIntensity`.
+> **Requisitos arquitectura:**
+> - `ModelFactory.js` debe usar `MeshStandardMaterial` en todos los meshes — necesario para `AlertSystem.emissiveIntensity`
+> - Sin carpeta `ai/` en MVP. Aparece en rama `feature/ai-advisor` (V2.0)
+> - `KPIEngine.js` calcula métricas dinámicamente desde datos de sensores
 
 ---
 
