@@ -17,6 +17,11 @@ import EventBus    from '../core/EventBus.js';
 import { EVENTS }  from '../core/events.js';
 import RuleEngine  from '../sensors/RuleEngine.js';
 
+// Bandera para ignorar eventos durante una limpieza activa.
+// Evita que RuleEngine.clearAlerts() añada items al historial
+// cuando el panel ya ha sido vaciado por DATA_SOURCE_CLEARING.
+let _clearing = false;
+
 const MAX_HISTORY = 20;
 
 const AlertPanel = {
@@ -43,9 +48,13 @@ const AlertPanel = {
     this._updateActiveEmpty();
     this._updateCounters();
 
-    // Suscribir
+    // Suscribir a alertas
     this._handler = (alert) => this._handleAlert(alert);
     EventBus.on(EVENTS.RULE_TRIGGERED, this._handler);
+
+    // Limpiar todo el estado cuando cambia la fuente de datos.
+    // Debe ejecutarse ANTES de que RuleEngine.clearAlerts() emita sus eventos.
+    EventBus.on(EVENTS.DATA_SOURCE_CLEARING, () => this.clearAll());
 
     // Actualizar timestamps cada 10s (más frecuente que antes para alertas cortas)
     this._timestampTimer = setInterval(() => this._refreshTimestamps(), 10_000);
@@ -83,6 +92,9 @@ const AlertPanel = {
   // ─── Gestión de alertas entrantes ────────────────────────────────────────────
 
   _handleAlert(alert) {
+    // Ignorar eventos durante limpieza activa (cambio de fuente de datos)
+    if (_clearing) return;
+
     if (alert.active) {
       if (!this._getActiveEl(alert.id)) {
         this._activeSince.set(alert.id, alert.timestamp);
@@ -212,6 +224,34 @@ const AlertPanel = {
     if (body) body.innerHTML = '';
     this._showHistorySection(false);
     this._updateCounters();
+  },
+
+  /**
+   * Limpieza completa: borra activas, historial, mapas internos y DOM.
+   * Llamado automáticamente al recibir DATA_SOURCE_CLEARING.
+   * También exportado para uso directo si es necesario.
+   */
+  clearAll() {
+    _clearing = true;
+
+    // Limpiar mapa de tiempos de activación
+    this._activeSince.clear();
+
+    // Limpiar sección de alertas activas
+    const activeBody = document.getElementById('alerts-body');
+    if (activeBody) activeBody.innerHTML = '';
+
+    // Limpiar historial en memoria y DOM
+    this._history = [];
+    const historyBody = document.getElementById('alerts-history-body');
+    if (historyBody) historyBody.innerHTML = '';
+    this._showHistorySection(false);
+
+    // Restaurar estado visual
+    this._updateActiveEmpty();
+    this._updateCounters();
+
+    _clearing = false;
   },
 
   _showHistorySection(show) {

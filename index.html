@@ -554,6 +554,20 @@
       transition: background-color 0.15s, color 0.15s;
     }
 
+    /* Botón de simulación — variante con acento ámbar cuando está activo */
+    .topbar-btn--sim {
+      color: var(--text1);
+    }
+    .topbar-btn--sim.is-active {
+      color: var(--amber);
+      border-color: var(--amber);
+      background: var(--amber-bg);
+    }
+    .topbar-btn--sim:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
     .topbar-btn:hover {
       background: var(--bg3);
       color: var(--text0);
@@ -2076,6 +2090,13 @@
     <!-- Alert chip — opacity: 0 cuando no hay alertas -->
     <span id="alert-chip">0 alerts active</span>
 
+    <div class="topbar-sep"></div>
+
+    <!-- Botón de control de simulación — siempre visible -->
+    <button class="topbar-btn topbar-btn--sim" id="btn-simulation" title="Start simulation with synthetic sensor data">▶ Simulation</button>
+    <div style="width: 6px;"></div>
+
+    <!-- Separador -->
     <div class="topbar-sep"></div>
 
     <!-- Botones ghost -->

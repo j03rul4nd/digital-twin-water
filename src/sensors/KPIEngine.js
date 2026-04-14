@@ -43,6 +43,9 @@ const KPIEngine = {
     };
     EventBus.on(EVENTS.RULE_TRIGGERED, this._handler);
 
+    // Resetear contadores al cambiar de fuente de datos
+    EventBus.on(EVENTS.DATA_SOURCE_CLEARING, () => this.reset());
+
     // Calcular y emitir KPIs periódicamente
     this._timer = setInterval(() => this._calculate(), UPDATE_INTERVAL_MS);
 
@@ -237,6 +240,18 @@ const KPIEngine = {
       samplesInWindow: n,
       calculatedAt:    Date.now(),
     };
+  },
+
+  /**
+   * Resetea todos los contadores de sesión.
+   * Llamado automáticamente al recibir DATA_SOURCE_CLEARING.
+   * Los KPIs del próximo cálculo reflejarán solo la nueva sesión.
+   */
+  reset() {
+    this._alertCount    = 0;
+    this._backwashCount = 0;
+    this._lastFilter1Dp = null;
+    this._sessionStart  = Date.now();
   },
 
   destroy() {

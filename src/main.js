@@ -1,19 +1,25 @@
 /**
  * main.js — Entry point. Orquesta el arranque en orden explícito.
  *
- * Orden de inicialización (Decisión 11):
+ * Orden de inicialización (Decisión 11, revisado):
  *   1. SceneManager + ModelFactory  — el renderer tiene que existir antes de cualquier mesh
  *   2. AnimationLoop                — arranca después de la escena, antes de datos
  *                                     (el primer frame renderiza la escena vacía sin errores)
- *   3. SensorState + RuleEngine     — listos para recibir datos
+ *   3. SensorState + RuleEngine + DataSourceManager — listos para recibir datos
  *   4. UI + SceneUpdater + AlertSystem — subscripciones al EventBus registradas antes del primer tick
  *                                       Toolbar y MiniMap aquí aunque no consuman datos de sensor:
- *                                       Toolbar necesita escuchar MQTT_* desde el inicio.
- *   5. Orquestación Worker ↔ MQTT  — registrada antes de que el Worker arranque
- *   6. SensorWorker                 — SIEMPRE el último
+ *                                       Toolbar necesita escuchar MQTT_* y DATA_SOURCE_CHANGED desde el inicio.
+ *   5. StartupModal — el usuario elige fuente de datos explícitamente
+ *      (SensorWorker NUNCA arranca automáticamente — siempre por acción del usuario)
  *
  * REGLA: cualquier módulo nuevo debe inicializarse en el paso 4,
- * antes de SensorWorker.start(). Esta función es el único punto de entrada.
+ * antes de StartupModal.show(). Esta función es el único punto de entrada.
+ *
+ * GARANTÍAS post-refactor:
+ *   - La simulación NUNCA se activa sin acción explícita del usuario.
+ *   - MQTT_DISCONNECTED / MQTT_ERROR NO reanudan la simulación.
+ *   - Al cambiar de fuente, TODO el estado previo se limpia (readings, histórico,
+ *     alertas activas, historial de alertas, KPIs, contadores de Toolbar).
  *
  * Estrategia de error visible en init().catch():
  *   Un WebGL no disponible o un import fallido produce pantalla en blanco.
@@ -28,8 +34,6 @@ import { EVENTS }      from './core/events.js';
 
 import SensorState     from './sensors/SensorState.js';
 import RuleEngine      from './sensors/RuleEngine.js';
-import SensorWorker    from './sensors/SensorWorker.js';
-import MQTTAdapter     from './sensors/MQTTAdapter.js';
 
 import SceneUpdater    from './scene/SceneUpdater.js';
 import AlertSystem     from './scene/AlertSystem.js';
@@ -50,6 +54,8 @@ import WebhookManager   from './utils/WebhookManager.js';
 import KPIEngine        from './sensors/KPIEngine.js';
 import KPIPanel         from './ui/KPIPanel.js';
 import MCPBridge        from './utils/MCPBridge.js';
+import DataSourceManager from './core/DataSourceManager.js';
+import StartupModal     from './ui/StartupModal.js';
 
 import MobileTabBar from './ui/MobileTabBar.js';
 
@@ -73,6 +79,7 @@ async function init() {
   SensorState.reset(); // garantiza estado limpio al arrancar
   RuleEngine.init();
   KPIEngine.init();
+  DataSourceManager.init(); // máquina de estados para la fuente de datos
 
   // ── Paso 4: UI ────────────────────────────────────────────────────────────
   // Subscripciones al EventBus registradas antes del primer tick.
@@ -96,8 +103,9 @@ async function init() {
   KPIPanel.init();
   MCPBridge.init();
 
-  // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe
-  // (en Fase 3 este bloque estaba comentado — aquí se activa)
+  // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe.
+  // Al arrancar no hay alertas (SensorState.reset() fue llamado en paso 3),
+  // pero el bloque se mantiene para coherencia con el contrato de AlertPanel.
   RuleEngine.getActiveAlerts()
     .sort((a, b) => {
       if (a.severity !== b.severity) return a.severity === 'danger' ? -1 : 1;
@@ -105,30 +113,11 @@ async function init() {
     })
     .forEach(alert => AlertPanel._renderAlert?.(alert));
 
-  // ── Paso 5: Orquestación Worker ↔ MQTT ────────────────────────────────────
-  // Registrada antes de que el Worker arranque — sin race condition.
-  EventBus.on(EVENTS.MQTT_CONNECTED, () => {
-    // Reset de estado al cambiar de fuente (Decisión 9)
-    SensorState.reset();
-    RuleEngine.clearAlerts();
-    SensorWorker.pause();
-  });
-
-  EventBus.on(EVENTS.MQTT_ERROR, () => {
-    SensorWorker.resume();
-  });
-
-  EventBus.on(EVENTS.MQTT_DISCONNECTED, () => {
-    // Reset de estado al volver al simulador
-    SensorState.reset();
-    RuleEngine.clearAlerts();
-    SensorWorker.resume();
-  });
-
-  // ── Paso 6: Worker — SIEMPRE el último ────────────────────────────────────
-  // En este punto todos los listeners están registrados
-  // y ningún tick del primer snapshot se pierde.
-  SensorWorker.start();
+  // ── Paso 5: StartupModal — el usuario elige la fuente de datos ─────────────
+  // SensorWorker NUNCA arranca automáticamente.
+  // DataSourceManager gestiona todas las transiciones Worker ↔ MQTT.
+  // La lógica de orquestación ya está en DataSourceManager.init() (paso 3).
+  await StartupModal.show();
 }
 
 // ─── Error screen visible ─────────────────────────────────────────────────────

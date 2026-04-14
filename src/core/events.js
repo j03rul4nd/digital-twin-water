@@ -60,4 +60,14 @@ export const EVENTS = {
   // payload: { name: string, expiresAt: number, durationMs: number } | null
   //   null → escenario terminado o cancelado, simulador en modo normal
   SCENARIO_CHANGED: 'scenario:changed',
+
+  // ─── Fuente de datos ──────────────────────────────────────────────────────
+  // Emitido por DataSourceManager cuando cambia el modo activo.
+  // payload: { mode: 'none' | 'simulation' | 'mqtt' }
+  DATA_SOURCE_CHANGED: 'datasource:changed',
+
+  // Emitido por DataSourceManager justo ANTES de limpiar el estado.
+  // Los módulos (AlertPanel, KPIEngine, Toolbar…) se suscriben para auto-limpiarse.
+  // payload: none
+  DATA_SOURCE_CLEARING: 'datasource:clearing',
 };

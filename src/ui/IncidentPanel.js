@@ -79,23 +79,28 @@ const IncidentPanel = {
       this._render();
     };
 
-    // Ocultar cuando MQTT conecta, mostrar cuando desconecta
-    const onMqttConnected    = () => this._setVisible(false);
-    const onMqttDisconnected = () => this._setVisible(true);
-    const onMqttError        = () => this._setVisible(true);
+    // Visibilidad: el panel solo es útil en modo simulación.
+    // Usamos DATA_SOURCE_CHANGED para responder a la máquina de estados real,
+    // no a eventos MQTT directos (que no cubren el modo 'none').
+    const onSourceChanged = ({ mode }) => {
+      this._setVisible(mode === 'simulation');
+      // Al salir de simulación, cancelar cualquier escenario activo
+      if (mode !== 'simulation' && this._activeScenario) {
+        this._activeScenario = null;
+        this._stopCountdown();
+      }
+    };
 
-    EventBus.on(EVENTS.SCENARIO_CHANGED,   onScenario);
-    EventBus.on(EVENTS.MQTT_CONNECTED,     onMqttConnected);
-    EventBus.on(EVENTS.MQTT_DISCONNECTED,  onMqttDisconnected);
-    EventBus.on(EVENTS.MQTT_ERROR,         onMqttError);
+    EventBus.on(EVENTS.SCENARIO_CHANGED,    onScenario);
+    EventBus.on(EVENTS.DATA_SOURCE_CHANGED, onSourceChanged);
 
     this._handlers = [
-      [EVENTS.SCENARIO_CHANGED,   onScenario],
-      [EVENTS.MQTT_CONNECTED,     onMqttConnected],
-      [EVENTS.MQTT_DISCONNECTED,  onMqttDisconnected],
-      [EVENTS.MQTT_ERROR,         onMqttError],
+      [EVENTS.SCENARIO_CHANGED,    onScenario],
+      [EVENTS.DATA_SOURCE_CHANGED, onSourceChanged],
     ];
 
+    // Oculto al inicio — visible solo cuando se activa la simulación
+    this._setVisible(false);
     this._render();
   },
 

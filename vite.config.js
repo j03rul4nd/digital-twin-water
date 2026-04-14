@@ -26,4 +26,11 @@ export default defineConfig({
     // Sin esto Vite trata el Worker como script clásico y los imports fallan.
     format: 'es',
   },
+
+  optimizeDeps: {
+    // mqtt usa `await import('mqtt')` dinámico en MQTTAdapter.
+    // Sin include explícito, Vite puede no pre-bundlearlo en dev mode
+    // y el import falla en runtime aunque el paquete esté instalado.
+    include: ['mqtt'],
+  },
 });
