@@ -11,7 +11,7 @@
 
 ## What is this
 
-A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, a rule engine with trend detection, webhook alerts, flexible payload mapping, Sparkplug B support, process KPIs, and Claude Desktop integration via MCP.
+A starter kit that lets any developer spin up a **working digital twin of a water treatment plant in under 30 minutes** — with live sensor simulation, real-time 3D visualization, a rule engine with trend detection, multi-sensor analysis charts, webhook alerts, flexible payload mapping, Sparkplug B support, process KPIs, and Claude Desktop integration via MCP.
 
 No Docker, no server, no auth. Fork it, swap in your sensors, connect your real MQTT broker.
 
@@ -26,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) — the simulator starts immediately.
+Open [http://localhost:5173](http://localhost:5173) — choose your data source and the simulator starts immediately.
 
 ---
 
@@ -37,14 +37,33 @@ Open [http://localhost:5173](http://localhost:5173) — the simulator starts imm
 | **3D visualization** | Procedural plant model. Meshes glow when alerts fire. ISA-101 color coding. |
 | **Rule engine** | 15 rules evaluated every 500ms. Threshold + trend detection via linear regression. |
 | **Alert history** | Resolved alerts move to History with duration and timestamp — not just a live list. |
+| **Multi-sensor analysis** | Compare up to 6 sensors side-by-side. Synchronized cursors, zoom/pan, event markers, minimap, before/after comparison, PNG + CSV export. |
+| **Sensor detail modal** | Per-sensor 3-minute chart with zone-colored line segments, hover crosshair, stale feed detection, and collapsible high-precision history table. |
+| **Event markers** | Alert and scenario timestamps appear as vertical flag lines on every chart for instant visual correlation. |
 | **Webhook alerts** | POST to Slack, Discord, n8n, Make, Zapier when alerts fire. Configured from UI. |
 | **Payload mapping** | Auto-detect, flat, or custom field mapping. Connect any broker format without code. |
 | **Sparkplug B** | Native Sparkplug B decode (Ignition, Cirrus Link, modern PLCs). No extra deps. |
-| **Sensor history** | Click any sensor row for a live 3-minute chart with threshold reference lines. |
 | **Incident simulator** | Trigger fault scenarios from the UI. 5 scenarios, 30s duration, auto-reset. |
 | **Process KPIs** | Throughput, chlorination efficiency, time-in-warning, backwash count, and more. |
 | **Claude Desktop** | MCP server lets Claude query sensor data, alerts, KPIs and trends in real time. |
 | **UI-configurable** | Broker, credentials, webhooks, payload mapping — all from the dashboard, no code. |
+| **Startup flow** | Explicit data source selection on load. Simulation never starts without user action. |
+
+---
+
+## Multi-Sensor Analysis Panel
+
+Click **`⊞ Compare`** in the topbar to open the analysis panel.
+
+- Add up to 6 sensors from the left sidebar
+- **Synchronized crosshair**: hover over any chart to see the value on all charts at the same timestamp
+- **Zoom & pan**: scroll wheel to zoom, drag to pan — all charts stay in sync
+- **Time window**: quick-select 30s / 1m / 2m / All from the header toolbar
+- **Event markers**: vertical dashed lines where alerts fired (amber = warning, red = danger) — see exactly what the sensors were doing when the alert triggered
+- **Minimap navigator**: 28px overview strip below each chart; click or drag to navigate the zoom window
+- **Analytics sidebar**: per-sensor stats (μ, σ, min, max, p95, n), trend direction, Pearson correlations between all visible pairs
+- **Before/After comparison**: zoom into any window to see first-half vs. second-half mean delta and significance per sensor
+- **Export**: CSV with all series, clipboard (TSV), chart config (JSON), PNG snapshot
 
 ---
 
@@ -210,20 +229,29 @@ my_sensor: ['mesh_pump_station'],
 sensor.worker.js  (Web Worker — isolated from render loop)
   │  500ms snapshots + 5 incident scenarios
   ▼
+DataSourceManager    ← state machine: none | simulation | mqtt
+  │  orchestrates Worker ↔ MQTT transitions + SensorState.reset()
+  │  StartupModal — user picks source explicitly on first load
+  ▼
 main.js → SensorState.update()     ← single source of truth + history buffer
         → EventBus.emit(SENSOR_UPDATE)
   │
   ├──▶ RuleEngine      threshold rules + trend rules (getTrend)
   │      └──▶ AlertPanel        active list + history section
   │      └──▶ AlertSystem       emissive glow on 3D meshes
-  │      └──▶ WebhookManager    POST to configured URLs (text/plain, no preflight)
+  │      └──▶ WebhookManager    POST to configured URLs
+  │      └──▶ EventMarkers      time-indexed store of alert timestamps
   │
   ├──▶ KPIEngine       throughput · chlorination eff · time-in-warning · backwashes
   │      └──▶ KPIPanel          modal with bar chart + stats grid
   │      └──▶ MCPBridge         push state to mcp-bridge-server every 1s
   │
   ├──▶ SceneUpdater    ColorMapper → mesh.material.color per tick
-  └──▶ TelemetryPanel  rows → click → SensorDetailModal (live SVG chart)
+  ├──▶ TelemetryPanel  rows → click → SensorDetailModal (live SVG chart, stale detection)
+  └──▶ MultiChartPanel ← ⊞ Compare button
+         ChartStore    (zoom, hover, series — observable store)
+         AnalyticsEngine (stats, derivative, anomalies, correlation, LTTB)
+         EventMarkers  (vertical flag lines at alert timestamps)
 
 MQTTAdapter  (real broker)
   │  topic = spBv1.0/... → SparkplugParser.parse() (Protobuf decode)
@@ -260,6 +288,8 @@ Claude Desktop ← mcp-server.js ← mcp-state.json ← mcp-bridge-server ← MC
 
 **V1.3 ✅** Sparkplug B · Process KPIs · Claude Desktop MCP integration
 
+**V1.4 ✅** DataSourceManager · StartupModal · SensorDetailModal v2 · MultiChartPanel (multi-sensor analysis, event markers, minimap, before/after comparison, PNG export) · AnalyticsEngine · ChartStore · EventMarkers
+
 **V2.0 — Planned**
 [`feature/ai-advisor`](../../tree/feature/ai-advisor): TinyLlama via WebLLM, natural language process diagnostics (~700MB, opt-in)
 
@@ -273,6 +303,7 @@ Claude Desktop ← mcp-server.js ← mcp-state.json ← mcp-bridge-server ← MC
 | 3D | Three.js | WebGL2, procedural model, no assets |
 | Realtime | Web Worker + MQTT.js | Worker isolates render loop |
 | Protocols | MQTT + Sparkplug B | Native Protobuf decode, no extra deps |
+| Charts | Pure SVG | No chart library — full control, no bundle weight |
 | Map | Leaflet + OSM | Free, no API key |
 | AI integration | MCP protocol | Claude Desktop reads live plant data |
 | Deploy | GitHub Pages / Vercel | Static build, free |

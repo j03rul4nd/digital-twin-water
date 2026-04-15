@@ -120,6 +120,14 @@ const Toolbar = {
       });
     }
 
+    // ── Botón Multi-Chart Analysis ────────────────────────────────────────
+    const compareBtn = document.getElementById('btn-compare');
+    if (compareBtn) {
+      compareBtn.addEventListener('click', () => {
+        EventBus.emit(EVENTS.OPEN_MULTI_CHART, {});
+      });
+    }
+
     // ── Botón Docs ────────────────────────────────────────────────────────
     const docsBtn = document.getElementById('btn-docs');
     if (docsBtn) {

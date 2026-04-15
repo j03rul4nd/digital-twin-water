@@ -57,7 +57,9 @@ import MCPBridge        from './utils/MCPBridge.js';
 import DataSourceManager from './core/DataSourceManager.js';
 import StartupModal     from './ui/StartupModal.js';
 
-import MobileTabBar from './ui/MobileTabBar.js';
+import MobileTabBar    from './ui/MobileTabBar.js';
+import MultiChartPanel from './ui/MultiChartPanel.js';
+import EventMarkers    from './charts/EventMarkers.js';
 
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -102,6 +104,8 @@ async function init() {
   PayloadMapperPanel.init();
   KPIPanel.init();
   MCPBridge.init();
+  MultiChartPanel.init();
+  EventMarkers.init();
 
   // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe.
   // Al arrancar no hay alertas (SensorState.reset() fue llamado en paso 3),

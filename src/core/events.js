@@ -70,4 +70,9 @@ export const EVENTS = {
   // Los módulos (AlertPanel, KPIEngine, Toolbar…) se suscriben para auto-limpiarse.
   // payload: none
   DATA_SOURCE_CLEARING: 'datasource:clearing',
+
+  // ─── Análisis multi-sensor ─────────────────────────────────────────────────
+  // Emitido por cualquier módulo para abrir el panel MultiChartPanel.
+  // payload: { sensorIds?: string[] } — si se pasa, el panel pre-carga esos sensores
+  OPEN_MULTI_CHART: 'chart:open-multi',
 };

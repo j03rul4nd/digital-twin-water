@@ -14,6 +14,8 @@
  * Sin dependencias externas — SVG puro + CSS inyectado en <head>.
  */
 
+import EventBus          from '../core/EventBus.js';
+import { EVENTS }        from '../core/events.js';
 import SensorState       from '../sensors/SensorState.js';
 import { SENSORS }       from '../sensors/SensorConfig.js';
 import { getSensorState } from '../scene/ColorMapper.js';
@@ -102,7 +104,10 @@ const SensorDetailModal = {
             <span id="sd-sensor-unit" class="sd-unit"></span>
             <span id="sd-state-badge" class="sd-badge"></span>
           </div>
-          <button id="sd-close" aria-label="Close">✕</button>
+          <div id="sd-header-right">
+            <button id="sd-compare-btn" title="Open in Multi-Sensor Analysis">⊞ Compare</button>
+            <button id="sd-close" aria-label="Close">✕</button>
+          </div>
         </div>
 
         <div id="sd-value-row">
@@ -209,6 +214,14 @@ const SensorDetailModal = {
       if (e.key === 'Escape' && this._isOpen()) this.close();
     });
     document.getElementById('sd-close').addEventListener('click', () => this.close());
+
+    // "Compare" button → open MultiChartPanel pre-loaded with this sensor
+    document.getElementById('sd-compare-btn').addEventListener('click', () => {
+      const sensorId = this._activeSensor?.id;
+      if (!sensorId) return;
+      this.close();
+      EventBus.emit(EVENTS.OPEN_MULTI_CHART, { sensorIds: [sensorId] });
+    });
 
     // Render table immediately when <details> is opened (don't wait for next tick)
     document.getElementById('sd-history-details')?.addEventListener('toggle', () => {
