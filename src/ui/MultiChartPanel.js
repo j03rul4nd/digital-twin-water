@@ -34,6 +34,7 @@ import {
   computeStats,
   computeDerivative,
   detectAnomalies,
+  computeCorrelation,
   computeCorrelationMatrix,
   describeCorrelation,
   lttbDownsample,
@@ -41,7 +42,10 @@ import {
   formatTrend,
   compareWindows,
 } from '../charts/AnalyticsEngine.js';
-import EventMarkers from '../charts/EventMarkers.js';
+import EventMarkers    from '../charts/EventMarkers.js';
+import FinancialConfig from '../utils/FinancialConfig.js';
+import { computeEconomicImpact, computeCostPerUnit } from '../utils/FinancialAnalytics.js';
+import ConfigModal from './ConfigModal.js';
 
 // ─── SVG geometry ─────────────────────────────────────────────────────────────
 const CW   = 600;   // SVG viewBox width
@@ -82,6 +86,12 @@ const MultiChartPanel = {
   init() {
     this._build();
     this._injectStyles();
+    FinancialConfig.load();
+
+    // Initialize economic overlay flags (don't overwrite if already set)
+    if (ChartStore.config.showEconomicCost       === undefined) ChartStore.setConfig('showEconomicCost', false);
+    if (ChartStore.config.showEconomicCorrelation === undefined) ChartStore.setConfig('showEconomicCorrelation', false);
+    if (ChartStore.config.showEconomicImpact      === undefined) ChartStore.setConfig('showEconomicImpact', false);
 
     // Open from any emitter
     const onOpen = ({ sensorIds } = {}) => this.open(sensorIds);
@@ -142,6 +152,11 @@ const MultiChartPanel = {
             <button id="mc-btn-deriv" class="mc-btn mc-toggle-btn" data-config="showDerivative" title="Show rate of change">∂ Rate</button>
             <button id="mc-btn-anomalies" class="mc-btn mc-toggle-btn" data-config="showAnomalies" title="Highlight anomalies">⚑ Anomalies</button>
             <div class="mc-btn-sep"></div>
+            <button id="mc-btn-econ-cost" class="mc-btn mc-toggle-btn" data-config="showEconomicCost" title="Accumulated cost overlay">€ Cost</button>
+            <button id="mc-btn-econ-corr" class="mc-btn mc-toggle-btn" data-config="showEconomicCorrelation" title="Economic correlation in sidebar">≈ Corr</button>
+            <button id="mc-btn-econ-impact" class="mc-btn mc-toggle-btn" data-config="showEconomicImpact" title="Combined economic impact chart">⚡ Impact</button>
+            <button id="mc-btn-fin-cfg" class="mc-btn" title="Financial analytics configuration">⚙ Fin</button>
+            <div class="mc-btn-sep"></div>
             <button id="mc-btn-zoom-reset" class="mc-btn" title="Reset zoom to full history">↺ Reset zoom</button>
             <div class="mc-btn-sep"></div>
             <div class="mc-btn-group" id="mc-timewindow-group">
@@ -187,6 +202,10 @@ const MultiChartPanel = {
               <div class="mc-sidebar-label">CORRELATIONS</div>
               <div id="mc-correlation-body"></div>
             </div>
+            <div class="mc-sidebar-section" id="mc-econ-corr-section" style="display:none">
+              <div class="mc-sidebar-label">ECONOMIC CORRELATION</div>
+              <div id="mc-econ-corr-body"></div>
+            </div>
           </div>
 
           <div id="mc-charts-area">
@@ -197,6 +216,37 @@ const MultiChartPanel = {
             <div id="mc-no-sensors">
               <div class="mc-no-sensors-icon">⊞</div>
               <div>Select sensors from the left panel to compare</div>
+            </div>
+            <div id="mc-economic-chart-wrap" style="display:none; padding: 0 8px 8px;">
+              <div class="mc-chart-card">
+                <div class="mc-card-header">
+                  <div class="mc-card-header-left">
+                    <span class="mc-card-title">Combined economic impact</span>
+                    <span class="mc-card-unit">€/2h</span>
+                  </div>
+                </div>
+                <div class="mc-card-chart-wrap">
+                  <svg id="mc-econ-svg" viewBox="0 0 ${CW} 80" preserveAspectRatio="none"
+                       style="width:100%;height:80px;display:block;cursor:crosshair">
+                    <defs>
+                      <clipPath id="mc-econ-clip">
+                        <rect x="${PAD.left}" y="${PAD.top}" width="${ICW}" height="${80 - PAD.top - PAD.bottom}"/>
+                      </clipPath>
+                    </defs>
+                    <g id="mc-econ-zones"  clip-path="url(#mc-econ-clip)"></g>
+                    <g id="mc-econ-areas"  clip-path="url(#mc-econ-clip)"></g>
+                    <g id="mc-econ-line"   clip-path="url(#mc-econ-clip)"></g>
+                    <g id="mc-econ-events" clip-path="url(#mc-econ-clip)"></g>
+                    <g id="mc-econ-ylabels"></g>
+                    <line id="mc-econ-xhair" x1="0" y1="${PAD.top}" x2="0" y2="${80 - PAD.bottom}"
+                          stroke="rgba(255,255,255,0.25)" stroke-width="1" stroke-dasharray="3,3"
+                          display="none" clip-path="url(#mc-econ-clip)"/>
+                    <rect id="mc-econ-hover-rect"
+                          x="${PAD.left}" y="${PAD.top}" width="${ICW}" height="${80 - PAD.top - PAD.bottom}"
+                          fill="transparent"/>
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -269,6 +319,21 @@ const MultiChartPanel = {
         this._renderAllCharts();
       });
     });
+
+    // ── Financial config button ─────────────────────────────────────────────
+    document.getElementById('mc-btn-fin-cfg')?.addEventListener('click', () => {
+      ConfigModal.openAtSection('config-financial');
+    });
+
+    // ── Economic hover on impact chart ──────────────────────────────────────
+    document.getElementById('mc-econ-hover-rect')?.addEventListener('mousemove', e => {
+      const rect = document.getElementById('mc-econ-svg')?.getBoundingClientRect();
+      if (!rect) return;
+      const svgX = (e.clientX - rect.left) * (CW / rect.width);
+      const frac = Math.max(0, Math.min(1, (svgX - PAD.left) / ICW));
+      ChartStore.setHoverFrac(frac);
+    });
+    document.getElementById('mc-econ-hover-rect')?.addEventListener('mouseleave', () => ChartStore.clearHover());
 
     // ── ChartStore subscriptions ────────────────────────────────────────────
     this._unsubscribers.push(
@@ -414,7 +479,9 @@ const MultiChartPanel = {
           <g class="mc-lines"     clip-path="url(#mc-clip-${safeId})"></g>
           <g class="mc-deriv"     clip-path="url(#mc-clip-${safeId})" style="display:none"></g>
           <g class="mc-anomalies" clip-path="url(#mc-clip-${safeId})" style="display:none"></g>
-          <g class="mc-events"   clip-path="url(#mc-clip-${safeId})"></g>
+          <g class="mc-events"     clip-path="url(#mc-clip-${safeId})"></g>
+          <g class="mc-cost-line"  clip-path="url(#mc-clip-${safeId})" style="display:none"></g>
+          <g class="mc-cost-axis"></g>
           <g class="mc-y-labels"></g>
           <g class="mc-x-labels"></g>
           <line class="mc-xhair-line" x1="0" y1="${PAD.top}" x2="0" y2="${CH - PAD.bottom}" display="none" clip-path="url(#mc-clip-${safeId})"/>
@@ -627,6 +694,7 @@ const MultiChartPanel = {
       if (!visible) return;
       this._renderChart(sensorId);
     });
+    this._renderEconomicImpactChart();
     this._updateSourceBadgeFromState();
   },
 
@@ -703,6 +771,16 @@ const MultiChartPanel = {
       const show = ChartStore.config.showAnomalies;
       anomGroup.style.display = show ? '' : 'none';
       if (show) this._renderAnomalies(anomGroup, history, scaleX, scaleY, sensorId);
+    }
+
+    // ── Economic cost overlay ─────────────────────────────────────────────
+    const costGroup = svgEl.querySelector('.mc-cost-line');
+    const costAxis  = svgEl.querySelector('.mc-cost-axis');
+    if (costGroup && costAxis) {
+      const showCost = ChartStore.config.showEconomicCost && FinancialConfig.get().costPerUnit.enabled;
+      costGroup.style.display = showCost ? '' : 'none';
+      costAxis.innerHTML = '';
+      if (showCost) this._renderEconomicCostLine(svgEl, history, scaleX);
     }
 
     // ── Stats bar ─────────────────────────────────────────────────────────
@@ -1054,6 +1132,8 @@ const MultiChartPanel = {
     this._renderStatsPanel();
     this._renderComparePanel();
     this._renderCorrelationPanel();
+    this._renderEconomicCorrelation();
+    this._updateEconomicButtons();
   },
 
   _renderStatsPanel() {
@@ -1234,6 +1314,276 @@ const MultiChartPanel = {
     }
 
     body.innerHTML = pairs.join('');
+  },
+
+  // ─── Economic cost line overlay ───────────────────────────────────────────────
+
+  _renderEconomicCostLine(svgEl, history, scaleX) {
+    const costGroup = svgEl.querySelector('.mc-cost-line');
+    const costAxis  = svgEl.querySelector('.mc-cost-axis');
+    if (!costGroup || !costAxis) return;
+
+    costGroup.innerHTML = '';
+    costAxis.innerHTML  = '';
+
+    const cfg = FinancialConfig.get();
+    // Build cumulative cost series
+    let accumulated = 0;
+    const series = [];
+    for (let i = 0; i < history.length; i++) {
+      const v = history[i].value;
+      if (typeof v === 'number' && isFinite(v) && v > 0) {
+        const cost = computeCostPerUnit(v, cfg);
+        if (cost) accumulated += cost.totalCostPerHour * (0.5 / 3600);
+      }
+      series.push(accumulated);
+    }
+
+    const maxCost = Math.max(...series, 0.0001);
+    const scaleY2 = v => PAD.top + (1 - v / maxCost) * ICH;
+
+    // Draw dashed line
+    const pts = series.map((c, i) => {
+      const x = scaleX(i).toFixed(1);
+      const y = scaleY2(c).toFixed(1);
+      return `${i === 0 ? 'M' : 'L'}${x},${y}`;
+    });
+
+    if (pts.length >= 2) {
+      costGroup.appendChild(svg('path', {
+        d: pts.join(' '), fill: 'none',
+        stroke: 'rgba(251,191,36,0.65)',
+        'stroke-width': '1.2', 'stroke-dasharray': '4,3',
+        'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+      }));
+    }
+
+    // Secondary Y axis (right side)
+    const axisX = CW - PAD.right + 2;
+    for (let i = 0; i <= 2; i++) {
+      const v   = (i / 2) * maxCost;
+      const y   = scaleY2(v);
+      const lbl = costAxis.appendChild(svg('text', {
+        x: axisX + 1, y: y + 3,
+        'text-anchor': 'start', 'font-size': '6.5', fill: 'rgba(251,191,36,0.7)',
+        'font-family': 'JetBrains Mono, monospace',
+      }));
+      lbl.textContent = `€${v.toFixed(3)}`;
+    }
+  },
+
+  // ─── Economic correlation sidebar ─────────────────────────────────────────────
+
+  _renderEconomicCorrelation() {
+    const section = document.getElementById('mc-econ-corr-section');
+    const body    = document.getElementById('mc-econ-corr-body');
+    if (!section || !body) return;
+
+    const show = ChartStore.config.showEconomicCorrelation
+      && FinancialConfig.get().economicImpact.enabled;
+
+    const visible = ChartStore.activeSeries.filter(s => s.visible);
+    if (!show || visible.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+
+    const { startFrac, endFrac } = ChartStore.zoomWindow;
+    const cfg = FinancialConfig.get();
+    const rows = [];
+
+    visible.forEach(({ sensorId }) => {
+      const sConfig  = SENSORS.find(s => s.id === sensorId);
+      if (!sConfig) return;
+
+      const history  = SensorState.getHistory(sensorId);
+      const startIdx = Math.floor(history.length * startFrac);
+      const endIdx   = Math.ceil(history.length * endFrac);
+      const window   = history.slice(startIdx, endIdx);
+      if (window.length < 3) return;
+
+      const sensorVals = window.map(h => h.value).filter(v => isFinite(v));
+      const impactVals = window.map(h => {
+        const ei = computeEconomicImpact(h.value, sConfig, cfg);
+        return ei ? ei.impact2h : 0;
+      });
+
+      const r    = computeCorrelation(sensorVals, impactVals);
+      const desc = describeCorrelation(r);
+      const abs  = r !== null ? Math.abs(r) : 0;
+      const color = abs < 0.3 ? 'var(--green)' : abs < 0.7 ? 'var(--amber)' : 'var(--red)';
+
+      rows.push(`
+        <div class="mc-corr-row">
+          <div class="mc-corr-names">
+            <span>${sConfig.label}</span>
+            <span class="mc-corr-sep">↔</span>
+            <span>€ impact</span>
+          </div>
+          <div class="mc-corr-val" style="color:${color}">
+            ${r !== null ? r.toFixed(2) : '—'}
+            <span class="mc-corr-label">${desc.label}</span>
+          </div>
+        </div>
+      `);
+    });
+
+    body.innerHTML = rows.join('') || '<span class="mc-empty-hint">No data</span>';
+  },
+
+  // ─── Combined economic impact chart ───────────────────────────────────────────
+
+  _renderEconomicImpactChart() {
+    const wrap = document.getElementById('mc-economic-chart-wrap');
+    if (!wrap) return;
+
+    const visible = ChartStore.getVisibleSeries();
+    const show    = ChartStore.config.showEconomicImpact
+      && FinancialConfig.get().economicImpact.enabled
+      && visible.length >= 2;
+
+    wrap.style.display = show ? '' : 'none';
+    if (!show) return;
+
+    const ECON_CH = 80;
+    const ECON_ICH = ECON_CH - PAD.top - PAD.bottom;
+
+    const svgEl = document.getElementById('mc-econ-svg');
+    if (!svgEl) return;
+
+    const { startFrac, endFrac } = ChartStore.zoomWindow;
+    const cfg = FinancialConfig.get();
+
+    // Merge all active sensor histories by index
+    const histories = visible.map(({ sensorId }) => {
+      const full = SensorState.getHistory(sensorId);
+      const s = Math.floor(full.length * startFrac);
+      const e = Math.ceil(full.length * endFrac);
+      return { sensorId, window: full.slice(s, e) };
+    });
+
+    const minLen = Math.min(...histories.map(h => h.window.length));
+    if (minLen < 2) return;
+
+    // Combined impact2h at each tick
+    const combined = [];
+    for (let i = 0; i < minLen; i++) {
+      let total = 0;
+      histories.forEach(({ sensorId, window }) => {
+        const sConfig = SENSORS.find(s => s.id === sensorId);
+        if (!sConfig) return;
+        const pt = window[i];
+        if (!pt || typeof pt.value !== 'number') return;
+        const ei = computeEconomicImpact(pt.value, sConfig, cfg);
+        if (ei && !ei.inRange) total += ei.impact2h;
+      });
+      combined.push(total);
+    }
+
+    const maxVal = Math.max(...combined, 0.001);
+    const scaleX = i  => PAD.left + (i / Math.max(1, minLen - 1)) * ICW;
+    const scaleY = v  => PAD.top  + (1 - v / maxVal) * ECON_ICH;
+    const baseY  = scaleY(0);
+
+    // Zone bands
+    const zonesG = document.getElementById('mc-econ-zones');
+    if (zonesG) {
+      zonesG.innerHTML = '';
+      const thresholds = [
+        { lo: 0,  hi: Math.min(10,  maxVal), fill: 'rgba(34,197,94,0.07)' },
+        { lo: 10, hi: Math.min(50,  maxVal), fill: 'rgba(245,158,11,0.07)' },
+        { lo: 50, hi: maxVal,                fill: 'rgba(239,68,68,0.08)' },
+      ];
+      thresholds.forEach(({ lo, hi, fill }) => {
+        if (lo >= hi || lo >= maxVal) return;
+        const y1 = scaleY(hi), ht = scaleY(lo) - y1;
+        if (ht < 0.5) return;
+        zonesG.appendChild(svg('rect', { x: PAD.left, y: y1, width: ICW, height: ht, fill }));
+      });
+    }
+
+    // Area + line
+    const areasG = document.getElementById('mc-econ-areas');
+    const lineG  = document.getElementById('mc-econ-line');
+    if (areasG && lineG) {
+      areasG.innerHTML = '';
+      lineG.innerHTML  = '';
+
+      const dLine = combined
+        .map((v, i) => `${i === 0 ? 'M' : 'L'}${scaleX(i).toFixed(1)},${scaleY(v).toFixed(1)}`)
+        .join(' ');
+
+      if (combined.length >= 2) {
+        const first = combined[0], last = combined[combined.length - 1];
+        areasG.appendChild(svg('path', {
+          d: `${dLine} L${scaleX(minLen - 1).toFixed(1)},${baseY.toFixed(1)} L${scaleX(0).toFixed(1)},${baseY.toFixed(1)} Z`,
+          fill: 'rgba(245,158,11,0.10)',
+        }));
+        lineG.appendChild(svg('path', {
+          d: dLine, fill: 'none', stroke: '#f59e0b',
+          'stroke-width': '1.4', 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+        }));
+      }
+    }
+
+    // Y labels
+    const ylabG = document.getElementById('mc-econ-ylabels');
+    if (ylabG) {
+      ylabG.innerHTML = '';
+      [0, maxVal / 2, maxVal].forEach(v => {
+        const el = ylabG.appendChild(svg('text', {
+          x: PAD.left - 3, y: scaleY(v) + 3,
+          'text-anchor': 'end', 'font-size': '7', fill: '#52565f',
+          'font-family': 'JetBrains Mono, monospace',
+        }));
+        el.textContent = `€${v.toFixed(1)}`;
+      });
+    }
+
+    // Crosshair sync
+    const hf = ChartStore.hoverFrac;
+    const xhair = document.getElementById('mc-econ-xhair');
+    if (xhair) {
+      if (hf !== null && hf !== undefined) {
+        const cx = (PAD.left + hf * ICW).toFixed(1);
+        xhair.setAttribute('x1', cx); xhair.setAttribute('x2', cx);
+        xhair.removeAttribute('display');
+      } else {
+        xhair.setAttribute('display', 'none');
+      }
+    }
+
+    // Event markers
+    const firstSeries = histories[0]?.window;
+    if (firstSeries && firstSeries.length >= 2) {
+      const eventsG = document.getElementById('mc-econ-events');
+      if (eventsG) {
+        eventsG.innerHTML = '';
+        const startTs = firstSeries[0].timestamp;
+        const endTs   = firstSeries[firstSeries.length - 1].timestamp;
+        const range   = endTs - startTs || 1;
+        EventMarkers.getInRange(startTs, endTs).forEach(marker => {
+          const frac = (marker.timestamp - startTs) / range;
+          const x    = (PAD.left + frac * ICW).toFixed(1);
+          const col  = marker.severity === 'danger' ? '#ef4444' : '#f59e0b';
+          eventsG.appendChild(svg('line', {
+            x1: x, y1: PAD.top, x2: x, y2: ECON_CH - PAD.bottom,
+            stroke: col, 'stroke-width': '1', 'stroke-dasharray': '3,3', opacity: '0.7',
+          }));
+        });
+      }
+    }
+  },
+
+  // ─── Update economic button disabled states ───────────────────────────────────
+
+  _updateEconomicButtons() {
+    const costEnabled = FinancialConfig.get().costPerUnit.enabled;
+    const btn = document.getElementById('mc-btn-econ-cost');
+    if (btn) {
+      btn.disabled = !costEnabled;
+      btn.title    = costEnabled
+        ? 'Accumulated cost overlay'
+        : 'Enable Cost per unit in financial config first';
+    }
   },
 
   // ─── Source badge ────────────────────────────────────────────────────────────
@@ -1784,6 +2134,12 @@ const MultiChartPanel = {
   border-radius: 0;
   border-right: none;
 }
+
+/* ── Economic buttons ── */
+.mc-btn:disabled {
+  opacity: 0.35; cursor: not-allowed; pointer-events: none;
+}
+#mc-econ-svg { cursor: crosshair; }
 
 /* ── Before/After comparison panel ── */
 .mc-cmp-hint {
