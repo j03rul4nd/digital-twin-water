@@ -11,6 +11,8 @@
 
 import EventBus    from '../core/EventBus.js';
 import { EVENTS }  from '../core/events.js';
+import FinancialConfig from '../utils/FinancialConfig.js';
+import ConfigModal from './ConfigModal.js';
 
 const KPIPanel = {
   _overlay:  null,
@@ -19,6 +21,7 @@ const KPIPanel = {
 
   init() {
     this._build();
+    this._injectStyles();
 
     this._handler = (kpis) => this._update(kpis);
     EventBus.on(EVENTS.KPIS_UPDATED, this._handler);
@@ -109,6 +112,31 @@ const KPIPanel = {
 
         </div>
 
+        <div id="kpi-financial" style="display:none">
+          <div id="kpi-financial-header">
+            <span class="kpi-section-title">Financial</span>
+            <button id="kpi-fin-cfg-btn" class="kpi-cfg-btn" title="Configure financial analytics">⚙ Configure</button>
+          </div>
+          <div class="kpi-grid-financial">
+            <div class="kpi-fin-card">
+              <div class="kpi-fin-value" id="kpi-fin-oee">—</div>
+              <div class="kpi-fin-label">Session OEE</div>
+            </div>
+            <div class="kpi-fin-card">
+              <div class="kpi-fin-value" id="kpi-fin-cost-m3">—</div>
+              <div class="kpi-fin-label">Avg €/m³</div>
+            </div>
+            <div class="kpi-fin-card">
+              <div class="kpi-fin-value" id="kpi-fin-risk">—</div>
+              <div class="kpi-fin-label">Risk score</div>
+            </div>
+            <div class="kpi-fin-card">
+              <div class="kpi-fin-value" id="kpi-fin-total">—</div>
+              <div class="kpi-fin-label">Session cost</div>
+            </div>
+          </div>
+        </div>
+
         <div id="kpi-footer">
           <span class="kpi-meta">Updates every 5s · Based on last 3 minutes of data</span>
         </div>
@@ -124,6 +152,10 @@ const KPIPanel = {
       if (e.key === 'Escape' && el.classList.contains('visible')) this.close();
     });
     document.getElementById('kpi-close').addEventListener('click', () => this.close());
+    document.getElementById('kpi-fin-cfg-btn').addEventListener('click', () => {
+      this.close();
+      ConfigModal.openAtSection('config-financial');
+    });
   },
 
   _update(kpis) {
@@ -193,6 +225,87 @@ const KPIPanel = {
     // Session duration en el header
     const sl = document.getElementById('kpi-session-label');
     if (sl) sl.textContent = `Session: ${this._formatDuration(kpis.sessionDuration)}`;
+
+    // ── Financial section ──────────────────────────────────────────────────
+    const fcfg = FinancialConfig.get();
+    const anyFin = fcfg.oee.enabled || fcfg.costPerUnit.enabled || fcfg.economicImpact.enabled;
+    const finSection = document.getElementById('kpi-financial');
+    if (finSection) finSection.style.display = anyFin ? '' : 'none';
+
+    if (anyFin) {
+      const oeeEl = document.getElementById('kpi-fin-oee');
+      if (oeeEl && fcfg.oee.enabled) {
+        const pct = (kpis.sessionOEE * 100).toFixed(1);
+        oeeEl.textContent = `${pct}%`;
+        oeeEl.style.color = kpis.sessionOEE >= 0.85 ? 'var(--green)'
+          : kpis.sessionOEE >= 0.65 ? 'var(--amber)' : 'var(--red)';
+      } else if (oeeEl) { oeeEl.textContent = '—'; oeeEl.style.color = ''; }
+
+      const costEl = document.getElementById('kpi-fin-cost-m3');
+      if (costEl && fcfg.costPerUnit.enabled) {
+        costEl.textContent = `€${kpis.avgCostPerM3.toFixed(4)}`;
+        costEl.style.color = 'var(--text0)';
+      } else if (costEl) { costEl.textContent = '—'; costEl.style.color = ''; }
+
+      const riskEl = document.getElementById('kpi-fin-risk');
+      if (riskEl && fcfg.economicImpact.enabled) {
+        riskEl.textContent = `€${kpis.financialRiskScore.toFixed(2)}`;
+        riskEl.style.color = kpis.financialRiskScore === 0 ? 'var(--green)'
+          : kpis.financialRiskScore < 50 ? 'var(--amber)' : 'var(--red)';
+      } else if (riskEl) { riskEl.textContent = '—'; riskEl.style.color = ''; }
+
+      const totalEl = document.getElementById('kpi-fin-total');
+      if (totalEl && fcfg.costPerUnit.enabled) {
+        totalEl.textContent = `€${kpis.sessionCostTotal.toFixed(2)}`;
+        totalEl.style.color = 'var(--text0)';
+      } else if (totalEl) { totalEl.textContent = '—'; totalEl.style.color = ''; }
+    }
+  },
+
+  _injectStyles() {
+    if (document.getElementById('kpi-fin-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'kpi-fin-styles';
+    style.textContent = `
+#kpi-financial {
+  border-top: 1px solid var(--line);
+  padding: 10px 16px 8px;
+}
+#kpi-financial-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.kpi-section-title {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 9px; font-weight: 600; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.kpi-cfg-btn {
+  background: var(--bg3); border: 1px solid var(--line2);
+  color: var(--text2); border-radius: 3px; padding: 2px 7px;
+  font-family: 'IBM Plex Sans', sans-serif; font-size: 8px;
+  cursor: pointer; transition: color 0.12s;
+}
+.kpi-cfg-btn:hover { color: var(--text0); }
+.kpi-grid-financial {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.kpi-fin-card {
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 4px; padding: 6px 10px;
+}
+.kpi-fin-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 600; color: var(--text0);
+  line-height: 1.2;
+}
+.kpi-fin-label {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 8px; color: var(--text2); margin-top: 2px;
+}
+    `;
+    document.head.appendChild(style);
   },
 
   _formatDuration(seconds) {

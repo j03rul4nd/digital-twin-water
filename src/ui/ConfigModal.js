@@ -21,6 +21,8 @@
 import EventBus    from '../core/EventBus.js';
 import { EVENTS }  from '../core/events.js';
 import MQTTAdapter from '../sensors/MQTTAdapter.js';
+import FinancialConfig from '../utils/FinancialConfig.js';
+import { renderFinancialConfigUI, injectFinancialConfigStyles } from '../utils/renderFinancialConfigUI.js';
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
 
@@ -60,6 +62,42 @@ const ConfigModal = {
 
   init() {
     this._build();
+    injectFinancialConfigStyles();
+    FinancialConfig.load();
+    FinancialConfig.subscribe(() => {
+      if (this._isOpen()) {
+        const container = document.getElementById('cfg-financial-body');
+        if (container) renderFinancialConfigUI(container);
+      }
+    });
+
+    // Inject details section styles
+    if (!document.getElementById('cfg-details-styles')) {
+      const style = document.createElement('style');
+      style.id = 'cfg-details-styles';
+      style.textContent = `
+.cfg-details {
+  margin: 0 -1px; border-top: 1px solid var(--line);
+}
+.cfg-details-summary {
+  list-style: none; display: flex; align-items: center;
+  justify-content: space-between;
+  padding: 9px 20px; cursor: pointer; user-select: none;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 10px; font-weight: 500; color: var(--text1);
+  background: var(--bg2); transition: background 0.12s;
+}
+.cfg-details-summary::-webkit-details-marker { display: none; }
+.cfg-details-summary:hover { background: var(--bg3); }
+.cfg-details-arrow {
+  font-size: 8px; color: var(--text2);
+  transition: transform 0.2s ease;
+}
+.cfg-details[open] .cfg-details-arrow { transform: rotate(90deg); }
+.cfg-details-body { padding: 12px 20px 16px; background: var(--bg1); }
+      `;
+      document.head.appendChild(style);
+    }
 
     // Botón del topbar (opcional — puede no estar en el DOM)
     const settingsBtn = document.getElementById('btn-settings');
@@ -72,6 +110,13 @@ const ConfigModal = {
     EventBus.on(EVENTS.MQTT_ERROR, ({ reason }) => {
       if (this._isOpen()) this._setStatus('error', reason ?? 'Connection failed');
     });
+  },
+
+  openAtSection(sectionId) {
+    this.open();
+    setTimeout(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
   },
 
   open() {
@@ -91,6 +136,9 @@ const ConfigModal = {
     }
 
     this._overlay.classList.add('visible');
+
+    // Render financial config section
+    renderFinancialConfigUI(document.getElementById('cfg-financial-body'));
 
     // Focus en broker si está vacío, si no en el botón de conectar
     const brokerInput = document.getElementById('cfg-broker');
@@ -184,6 +232,14 @@ const ConfigModal = {
           </div>
 
         </div>
+
+        <details id="config-financial" class="cfg-details">
+          <summary class="cfg-details-summary">
+            <span>Financial analytics</span>
+            <span class="cfg-details-arrow">▶</span>
+          </summary>
+          <div id="cfg-financial-body" class="cfg-details-body"></div>
+        </details>
 
         <div id="cfg-footer">
           <button id="cfg-clear" class="cfg-btn-ghost cfg-btn-danger" style="display:none;">

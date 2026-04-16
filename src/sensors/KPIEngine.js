@@ -23,6 +23,8 @@ import { EVENTS }  from '../core/events.js';
 import SensorState from './SensorState.js';
 import { SENSORS } from './SensorConfig.js';
 import { getSensorState } from '../scene/ColorMapper.js';
+import FinancialConfig from '../utils/FinancialConfig.js';
+import { computeOEE, computeCostPerUnit, computeEconomicImpact } from '../utils/FinancialAnalytics.js';
 
 const UPDATE_INTERVAL_MS = 5_000; // recalcular cada 5 segundos
 
@@ -153,6 +155,53 @@ const KPIEngine = {
       (avgDose * avgInletFlow * hoursTotal * 1000 / 1e6).toFixed(4)
     );
 
+    // ── Financial KPIs ────────────────────────────────────────────────────
+    const fcfg = FinancialConfig.get();
+
+    // sessionOEE — over inlet_flow (most representative process sensor)
+    let sessionOEE = 0;
+    if (fcfg.oee.enabled) {
+      const inletCfg     = SENSORS.find(s => s.id === 'inlet_flow');
+      const inletHistory = SensorState.getHistory('inlet_flow');
+      if (inletCfg && inletHistory.length > 0) {
+        sessionOEE = computeOEE(inletHistory, inletCfg)?.oee ?? 0;
+      }
+    }
+
+    // sessionCostTotal — sum of cost per 500ms tick across entire history
+    let sessionCostTotal = 0;
+    if (fcfg.costPerUnit.enabled) {
+      for (const snap of history) {
+        const flow = snap.readings.inlet_flow;
+        if (!Number.isFinite(flow) || flow <= 0) continue;
+        const cost = computeCostPerUnit(flow, fcfg);
+        if (cost) sessionCostTotal += cost.totalCostPerHour * (0.5 / 3600);
+      }
+    }
+
+    // avgCostPerM3 — session cost / treated volume
+    const avgCostPerM3 = (fcfg.costPerUnit.enabled && throughput > 0)
+      ? parseFloat((sessionCostTotal / throughput).toFixed(4))
+      : 0;
+
+    // financialRiskScore — mean impact2h of out-of-range sensors (last snapshot)
+    let financialRiskScore = 0;
+    if (fcfg.economicImpact.enabled && history.length > 0) {
+      const lastSnap   = history[history.length - 1];
+      const impacts    = [];
+      SENSORS.forEach(sensor => {
+        const val = lastSnap.readings[sensor.id];
+        if (!Number.isFinite(val)) return;
+        const impact = computeEconomicImpact(val, sensor, fcfg);
+        if (impact && !impact.inRange) impacts.push(impact.impact2h);
+      });
+      if (impacts.length > 0) {
+        financialRiskScore = parseFloat(
+          (impacts.reduce((a, b) => a + b, 0) / impacts.length).toFixed(2)
+        );
+      }
+    }
+
     // ── Emitir ────────────────────────────────────────────────────────────
     const kpis = {
       throughput,
@@ -167,6 +216,11 @@ const KPIEngine = {
       sessionDuration,
       samplesInWindow:  n,
       calculatedAt:     Date.now(),
+      // Financial KPIs (always present; 0 when metric disabled)
+      sessionOEE:        parseFloat(sessionOEE.toFixed(4)),
+      sessionCostTotal:  parseFloat(sessionCostTotal.toFixed(2)),
+      avgCostPerM3,
+      financialRiskScore,
     };
 
     EventBus.emit(EVENTS.KPIS_UPDATED, kpis);

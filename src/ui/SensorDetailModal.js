@@ -19,36 +19,13 @@ import { EVENTS }        from '../core/events.js';
 import SensorState       from '../sensors/SensorState.js';
 import { SENSORS }       from '../sensors/SensorConfig.js';
 import { getSensorState } from '../scene/ColorMapper.js';
-
-// ─── Analytics configuration ──────────────────────────────────────────────────
-const ANALYTICS_CONFIG = {
-  oee: {
-    enabled: true
-  },
-  costPerUnit: {
-    enabled: true,
-    energyCostPerHour: 0.15,
-    pumpPowerKW: 5,
-    chemicalCostPerM3: 0.02
-  },
-  degradation: {
-    enabled: true,
-    minSamples: 20
-  },
-  volatility: {
-    enabled: true,
-    windowSize: 120
-  },
-  sharpe: {
-    enabled: true,
-    baseline: 0
-  },
-  economicImpact: {
-    enabled: true,
-    costPerDeviationUnit: 0.5,
-    costPerHourDowntime: 50
-  }
-};
+import FinancialConfig   from '../utils/FinancialConfig.js';
+import {
+  computeOEE, computeCostPerUnit, computeDegradation,
+  computeVolatility, computeSharpe, computeEconomicImpact,
+  formatDuration,
+} from '../utils/FinancialAnalytics.js';
+import { renderFinancialConfigUI, injectFinancialConfigStyles } from '../utils/renderFinancialConfigUI.js';
 
 // ─── Chart geometry ───────────────────────────────────────────────────────────
 const W   = 420;
@@ -75,107 +52,6 @@ function s(tag, attrs = {}) {
   return el;
 }
 
-// ─── Analytics pure functions ─────────────────────────────────────────────────
-
-function computeOEE(history, config) {
-  if (history.length === 0) return null;
-  const values    = history.map(p => p.value);
-  const finite    = values.filter(v => typeof v === 'number' && isFinite(v));
-  const n         = finite.length;
-  const availability = n / history.length;
-  const mean      = n > 0 ? finite.reduce((a, b) => a + b, 0) / n : 0;
-  const performance  = Math.min(1, Math.max(0, mean / config.rangeMax));
-  const quality   = n > 0
-    ? finite.filter(v => v >= config.warning.low && v <= config.warning.high).length / n
-    : 0;
-  return { oee: availability * performance * quality, availability, performance, quality };
-}
-
-function computeCostPerUnit(currentValue, analyticsConfig) {
-  if (currentValue == null || currentValue <= 0) return null;
-  const { pumpPowerKW, energyCostPerHour, chemicalCostPerM3 } = analyticsConfig.costPerUnit;
-  const energyCost      = pumpPowerKW * energyCostPerHour;
-  const totalCostPerHour = energyCost + currentValue * chemicalCostPerM3;
-  return { costPerUnit: totalCostPerHour / currentValue, totalCostPerHour };
-}
-
-function computeDegradation(history, config, analyticsConfig) {
-  const { minSamples } = analyticsConfig.degradation;
-  if (history.length < minSamples) return null;
-
-  const pts = [];
-  for (let i = 0; i < history.length; i++) {
-    const v = history[i].value;
-    if (typeof v === 'number' && isFinite(v)) pts.push({ x: i, y: v });
-  }
-  if (pts.length < minSamples) return null;
-
-  const n = pts.length;
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-  for (const { x, y } of pts) { sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x; }
-  const denom = n * sumX2 - sumX * sumX;
-  if (Math.abs(denom) < 1e-10) return { degrading: false };
-
-  const slope     = (n * sumXY - sumX * sumY) / denom;
-  const intercept = (sumY - slope * sumX) / n;
-
-  if (Math.abs(slope) < 1e-6) return { degrading: false };
-
-  const threshold            = slope > 0 ? config.danger.high : config.danger.low;
-  const timeToThresholdSeconds = ((threshold - intercept) / slope) * 0.5;
-  return { degrading: true, timeToThresholdSeconds, slope };
-}
-
-function computeVolatility(history, analyticsConfig) {
-  if (history.length < 2) return null;
-  const all = history.map(p => p.value).filter(v => typeof v === 'number' && isFinite(v));
-  if (all.length < 2) return null;
-
-  const hMean       = all.reduce((a, b) => a + b, 0) / all.length;
-  const historicalStd = Math.sqrt(all.reduce((a, v) => a + (v - hMean) ** 2, 0) / all.length);
-  if (historicalStd < 1e-10) return null;
-
-  const win    = history.slice(-analyticsConfig.volatility.windowSize)
-    .map(p => p.value).filter(v => typeof v === 'number' && isFinite(v));
-  const wMean  = win.reduce((a, b) => a + b, 0) / win.length;
-  const currentStd = Math.sqrt(win.reduce((a, v) => a + (v - wMean) ** 2, 0) / win.length);
-
-  const ratio = currentStd / historicalStd;
-  const level = ratio < 0.7 ? 'low' : ratio <= 1.4 ? 'normal' : 'high';
-  return { currentStd, historicalStd, ratio, level };
-}
-
-function computeSharpe(history, config, analyticsConfig) {
-  if (history.length < 2) return null;
-  const vals = history.map(p => p.value).filter(v => typeof v === 'number' && isFinite(v));
-  if (vals.length < 2) return null;
-
-  const mean     = vals.reduce((a, b) => a + b, 0) / vals.length;
-  const std      = Math.sqrt(vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length);
-  if (std < 1e-6) return null;
-
-  const baseline = analyticsConfig.sharpe.baseline === 0 ? config.normal.low : analyticsConfig.sharpe.baseline;
-  return { sharpe: (mean - baseline) / std, mean, std, baseline };
-}
-
-function computeEconomicImpact(currentValue, config, analyticsConfig) {
-  if (currentValue == null) return null;
-  if (currentValue >= config.normal.low && currentValue <= config.normal.high) {
-    return { inRange: true, impact2h: 0 };
-  }
-  const deviation    = currentValue < config.normal.low
-    ? config.normal.low  - currentValue
-    : currentValue - config.normal.high;
-  const impactPerHour = deviation * analyticsConfig.economicImpact.costPerDeviationUnit;
-  return { inRange: false, deviation, impactPerHour, impact2h: impactPerHour * 2 };
-}
-
-function _formatDuration(seconds) {
-  if (seconds < 3600)  return Math.round(seconds / 60) + 'm';
-  if (seconds < 86400) return (seconds / 3600).toFixed(1) + 'h';
-  return (seconds / 86400).toFixed(1) + 'd';
-}
-
 // ─── Modal singleton ──────────────────────────────────────────────────────────
 
 const SensorDetailModal = {
@@ -187,6 +63,9 @@ const SensorDetailModal = {
   init() {
     this._build();
     this._injectStyles();
+    injectFinancialConfigStyles();
+    FinancialConfig.load();
+    FinancialConfig.subscribe(() => { if (this._activeSensor) this._render(); });
   },
 
   open(sensorId) {
@@ -237,6 +116,7 @@ const SensorDetailModal = {
           </div>
           <div id="sd-header-right">
             <button id="sd-compare-btn" title="Open in Multi-Sensor Analysis">⊞ Compare</button>
+            <button id="sd-fin-cfg-btn" title="Financial analytics configuration">⚙</button>
             <button id="sd-close" aria-label="Close">✕</button>
           </div>
         </div>
@@ -334,6 +214,10 @@ const SensorDetailModal = {
           <div id="sd-am-grid"></div>
         </div>
 
+        <div id="sd-financial-config-panel" style="display:none">
+          <div id="sd-fc-body"></div>
+        </div>
+
         <div id="sd-footer">
           <span class="sd-hint">Last 3 min · 500ms resolution · Hover chart for details</span>
         </div>
@@ -357,6 +241,15 @@ const SensorDetailModal = {
       if (!sensorId) return;
       this.close();
       EventBus.emit(EVENTS.OPEN_MULTI_CHART, { sensorIds: [sensorId] });
+    });
+
+    // ⚙ button → toggle financial config panel
+    document.getElementById('sd-fin-cfg-btn').addEventListener('click', () => {
+      const panel = document.getElementById('sd-financial-config-panel');
+      if (!panel) return;
+      const open = panel.style.display === 'none' || !panel.style.display;
+      panel.style.display = open ? '' : 'none';
+      if (open) renderFinancialConfigUI(document.getElementById('sd-fc-body'));
     });
 
     // Render table immediately when <details> is opened (don't wait for next tick)
@@ -714,7 +607,7 @@ const SensorDetailModal = {
     const el = document.getElementById('sd-advanced-metrics');
     if (!el) return;
 
-    const cfg = ANALYTICS_CONFIG;
+    const cfg = FinancialConfig.get();
     const anyEnabled = cfg.oee.enabled || cfg.costPerUnit.enabled ||
       cfg.degradation.enabled || cfg.volatility.enabled ||
       cfg.sharpe.enabled || cfg.economicImpact.enabled;
@@ -770,7 +663,7 @@ const SensorDetailModal = {
       } else {
         const t = d.timeToThresholdSeconds;
         color = t < 3600 ? 'var(--red)' : t < 86400 ? 'var(--amber)' : 'var(--green)';
-        value = 'in ' + _formatDuration(t);
+        value = 'in ' + formatDuration(t);
         sub   = 'slope ' + d.slope.toFixed(4) + '/s';
       }
       metrics.push({ label: 'Degradation', value, color, sub });
@@ -1106,6 +999,31 @@ const SensorDetailModal = {
         border-top: 1px solid var(--line);
         margin-top: 10px;
       }
+
+      /* Financial config panel */
+      #sd-financial-config-panel {
+        margin: 10px 16px 0;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      #sd-fc-body {
+        padding: 10px 12px;
+        background: var(--bg1);
+      }
+
+      #sd-fin-cfg-btn {
+        background: none;
+        border: 1px solid var(--line2);
+        color: var(--text2);
+        border-radius: 4px;
+        padding: 3px 7px;
+        cursor: pointer;
+        font-size: 11px;
+        transition: color 0.12s, border-color 0.12s;
+      }
+      #sd-fin-cfg-btn:hover { color: var(--text0); border-color: var(--line3, #444); }
 
       /* ── Advanced analytics panel ─────────────────────────────────────── */
 
