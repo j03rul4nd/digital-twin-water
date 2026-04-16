@@ -3,7 +3,7 @@
 
 > Living document. Update every time an architectural decision is made or the architecture changes.
 >
-> Last updated: Iteration 9 (V1.4 — DataSourceManager, StartupModal, SensorDetailModal v2, MultiChartPanel, AnalyticsEngine, ChartStore, EventMarkers)
+> Last updated: Iteration 10 (V1.5 — FinancialAnalytics, FinancialConfig, renderFinancialConfigUI, financial KPIs in KPIEngine/KPIPanel, economic overlay layers in MultiChartPanel)
 
 ---
 
@@ -455,6 +455,49 @@ When hover fraction changes, `ChartStore` notifies `MultiChartPanel` via subscri
 
 `getInRange(startTs, endTs)` returns all markers in a timestamp range. Charts call this during render to draw vertical flag lines at the exact moments alerts fired. This enables instant visual correlation between sensor behavior and alert conditions — essential for post-incident analysis.
 
+### Decision 27 — FinancialAnalytics as pure stateless functions ★
+
+Identical pattern to Decision 23 (AnalyticsEngine). All financial metric logic lives in `src/utils/FinancialAnalytics.js` as six named exports with no side effects, no imports from `ui/` or `core/`:
+
+```js
+export function computeOEE(history, config)                        // → { oee, availability, performance, quality }
+export function computeCostPerUnit(currentValue, analyticsConfig)  // → { costPerUnit, totalCostPerHour }
+export function computeDegradation(history, config, analyticsConfig) // → { degrading, timeToThresholdSeconds, slope }
+export function computeVolatility(history, analyticsConfig)        // → { currentStd, historicalStd, ratio, level }
+export function computeSharpe(history, config, analyticsConfig)    // → { sharpe, mean, std, baseline }
+export function computeEconomicImpact(currentValue, config, analyticsConfig) // → { inRange, impact2h, ... }
+```
+
+These functions are consumed in three separate modules (SensorDetailModal, KPIEngine, MultiChartPanel) without any shared state. The inputs are plain data; the outputs are plain objects. No cleanup, no `init()`, no subscriptions.
+
+### Decision 28 — FinancialConfig observable singleton with localStorage persistence ★
+
+Financial analytics configuration is user-facing (each sensor has different cost rates, baselines, and enabled metrics). A simple observable singleton covers the requirements without Redux or a state library:
+
+```js
+// FinancialConfig.js
+FinancialConfig.load()                    // reads localStorage, deep-merges with DEFAULTS
+FinancialConfig.get()                     // returns current config (always a valid object)
+FinancialConfig.set(metricKey, paramKey, value)  // updates one param + persists + notifies
+FinancialConfig.setEnabled(metricKey, enabled)   // toggles metric + persists + notifies
+FinancialConfig.subscribe(fn)             // returns unsubscribe fn — same pattern as ChartStore
+FinancialConfig.reset()                   // restores DEFAULTS + persists + notifies
+```
+
+`load()` is idempotent — called in every consumer's `init()`. Deep-merge with `DEFAULTS` guarantees forward compatibility: new config keys added in future versions appear automatically with their default values.
+
+Storage key: `wtp_financial_config`. Size: ~300 bytes JSON. No quota risk.
+
+### Decision 29 — Shared DOM renderer for financial config UI ★
+
+The financial config form appears in two places: the SensorDetailModal's inline ⚙ panel and the ConfigModal's `<details>` section. Without a shared renderer, both would have diverged in markup and behavior within a week of the first fork.
+
+`renderFinancialConfigUI(container)` in `src/utils/renderFinancialConfigUI.js` generates the full form into any container element. Both panels call it identically. The function reads `FinancialConfig.get()` to populate current values and writes back via `FinancialConfig.set()` on input events.
+
+CSS is injected once via `injectFinancialConfigStyles()` with an `id` guard — calling it multiple times is safe.
+
+This pattern generalizes: any future config section that appears in multiple panels should use the same shared renderer approach.
+
 ---
 
 ## Sensors — Water Treatment Plant
@@ -578,7 +621,10 @@ digital-twin-water/
         ├── MCPBridge.js
         ├── PayloadMapper.js
         ├── SparkplugParser.js
-        └── WebhookManager.js
+        ├── WebhookManager.js
+        ├── FinancialAnalytics.js     ← six pure financial metric functions ★
+        ├── FinancialConfig.js        ← localStorage-persisted observable singleton ★
+        └── renderFinancialConfigUI.js ← shared config UI renderer ★
 ```
 
 > ★ Critical architecture files or new in this iteration.
@@ -632,6 +678,16 @@ PHASE 6 — Advanced analytics (V1.4)
   SensorDetailModal v2 → zone-colored segments, stale detection, history table ★
   MultiChartPanel.js  → multi-sensor comparison panel ★
 
+PHASE 6.5 — Financial analytics (V1.5)
+  FinancialAnalytics.js      → 6 pure functions: OEE, cost/unit, degradation, volatility, Sharpe, economic impact ★
+  FinancialConfig.js         → localStorage-persisted singleton with subscribe/notify pattern ★
+  renderFinancialConfigUI.js → shared config renderer used by SensorDetailModal + ConfigModal ★
+  SensorDetailModal          → ⚙ inline financial config panel, history-length memoization ★
+  KPIEngine.js               → 4 financial KPIs always present: sessionOEE, avgCostPerM3, sessionCostTotal, financialRiskScore ★
+  KPIPanel.js                → Financial section (4 cards), ⚙ Configure → ConfigModal ★
+  ConfigModal.js             → Financial <details> section, openAtSection(id) method ★
+  MultiChartPanel.js         → € Cost overlay, ≈ Corr sidebar section, ⚡ Impact combined chart ★
+
 PHASE 7 — V2.0 (post-traction)
   feature/ai-advisor branch
   ai.worker.js + WebLLM + TinyLlama
@@ -681,6 +737,9 @@ PHASE 7 — V2.0 (post-traction)
 - Process KPIs
 - Claude Desktop MCP integration
 - Multi-sensor analysis panel with analytics engine
+- Financial analytics module (OEE, cost/unit, degradation, volatility, Sharpe, economic impact)
+- Economic overlay layers in MultiChartPanel (€ Cost, ≈ Corr, ⚡ Impact)
+- Financial KPIs in KPIPanel + ConfigModal financial section
 
 ### COULD HAVE — V2.0
 
@@ -717,6 +776,10 @@ PHASE 7 — V2.0 (post-traction)
 | Vite | Next.js | Next.js adds nothing without a server; Three.js needs `window`, forces `ssr:false` everywhere |
 | ES Modules + JS objects | Web Components | Shadow DOM adds complexity without benefit; objects are more readable and forkable |
 | Procedural model | GLTF from Sketchfab | Ambiguous licenses; no external deps; more educational for forks |
+| FinancialAnalytics pure functions | Stateful class | Identical pattern to AnalyticsEngine — no side effects, tree-shakeable, trivially testable |
+| FinancialConfig observable singleton | Prop drilling / Redux | localStorage persistence + subscribe/notify in 60 lines; zero external deps |
+| Shared renderFinancialConfigUI renderer | Duplicated DOM in each panel | Single source of truth for config UI; called identically from SensorDetailModal and ConfigModal |
+| Financial KPIs always-present in KPIS_UPDATED | Optional keys | KPIPanel never guards against missing keys; value is 0 when metric disabled, never absent |
 
 ---
 

@@ -18,6 +18,7 @@
 | **V1.2** | Webhooks, Payload mapper | ✅ Complete |
 | **V1.3** | Sparkplug B, KPIs, MCP server | ✅ Complete |
 | **V1.4** | DataSourceManager, StartupModal, SensorDetailModal v2, MultiChartPanel | ✅ Complete |
+| **V1.5** | Financial analytics module, KPI financial KPIs, economic chart layers | ✅ Complete |
 | **V2.0** | AI Advisor (WebLLM + TinyLlama) | ⬜ Pending |
 
 ---
@@ -73,21 +74,24 @@ digital-twin-water/
     │   ├── MiniMap.js
     │   ├── MQTTPanel.js
     │   ├── ConfigModal.js
-    │   ├── SensorDetailModal.js          v2: zone-colored chart, stale detection ★ V1.4
+    │   ├── SensorDetailModal.js          v2: zone-colored chart, stale detection ★ V1.4 + financial config panel ★ V1.5
     │   ├── IncidentPanel.js
     │   ├── WebhookPanel.js
     │   ├── PayloadMapperPanel.js
     │   ├── KPIPanel.js
     │   ├── MobileTabBar.js
     │   ├── StartupModal.js               explicit data source selection ★ V1.4
-    │   └── MultiChartPanel.js            multi-sensor analysis panel ★ V1.4
+    │   └── MultiChartPanel.js            multi-sensor analysis panel ★ V1.4 + economic layers ★ V1.5
     └── utils/
         ├── NoiseGenerator.js
         ├── DataExporter.js
         ├── WebhookManager.js
         ├── PayloadMapper.js
         ├── SparkplugParser.js
-        └── MCPBridge.js
+        ├── MCPBridge.js
+        ├── FinancialAnalytics.js         pure functions: OEE, cost/unit, degradation, volatility, Sharpe, impact ★ V1.5
+        ├── FinancialConfig.js            localStorage-persisted config singleton ★ V1.5
+        └── renderFinancialConfigUI.js    shared config UI renderer ★ V1.5
 ```
 
 ---
@@ -312,6 +316,92 @@ Opened via `EventBus.emit(EVENTS.OPEN_MULTI_CHART, { sensorIds? })` or via "⊞ 
 - PNG snapshot: renders all chart SVGs to a 2× DPI canvas with sensor names and current values, downloads as timestamped PNG
 
 **CSS**: all injected via `<style id="mc-styles">` in `_injectStyles()`, no external dependencies.
+
+---
+
+## V1.5 — Complete ✅
+
+### Financial analytics module
+
+**`src/utils/FinancialAnalytics.js`** — pure stateless functions, no side effects, no UI/core imports.
+
+| Function | Description |
+|---|---|
+| `computeOEE(history, config)` | Availability × Performance × Quality; returns `{ oee, availability, performance, quality }` |
+| `computeCostPerUnit(value, cfg)` | Energy + chemical + labor cost per hour at current flow; returns `{ totalCostPerHour, breakdown }` |
+| `computeDegradation(history, config, cfg)` | Least-squares regression → time-to-danger threshold in seconds |
+| `computeVolatility(history, cfg)` | Coefficient of variation (σ/μ) over the history window |
+| `computeSharpe(history, config, cfg)` | Sharpe-like ratio: (mean − target) / σ, measures process stability relative to normal range |
+| `computeEconomicImpact(value, config, cfg)` | Deviation × costPerDeviationUnit/h × 2h = `impact2h`; `inRange` flag |
+| `formatDuration(seconds)` | Human-readable: `"14m"`, `"2.3h"`, `"1.4d"` |
+
+**`src/utils/FinancialConfig.js`** — localStorage-persisted singleton (key: `wtp_financial_config`).
+- Deep-merges with `DEFAULTS` on load
+- Metrics: `oee`, `costPerUnit`, `degradation`, `volatility`, `sharpe`, `economicImpact`
+- Each metric has an `enabled` boolean + numeric parameters
+- `subscribe(fn)` returns an unsubscribe function — observer pattern, no EventBus dependency
+- `set(metricKey, paramKey, value)` → persist → notify all subscribers
+
+**`src/utils/renderFinancialConfigUI.js`** — shared DOM renderer.
+- `renderFinancialConfigUI(container)`: generates checkboxes + numeric inputs for all metrics; wires events to `FinancialConfig.set()` / `setEnabled()`; "↺ Reset to defaults" button
+- `injectFinancialConfigStyles()`: injects CSS once into `<head>`; safe to call multiple times
+
+---
+
+### SensorDetailModal — financial config panel
+
+**`src/ui/SensorDetailModal.js`** updated:
+- Imports `FinancialAnalytics` functions and `FinancialConfig` instead of inline constants
+- ⚙ toggle button in modal header opens/closes an inline `#sd-financial-config-panel`
+- Re-renders analytics section whenever `FinancialConfig` changes (via subscribe)
+- Memoized on `history.length` — only recalculates when new data arrives
+
+---
+
+### KPIEngine — financial KPIs
+
+**`src/sensors/KPIEngine.js`** updated — four new KPIs always present in `KPIS_UPDATED` (value `0` when the metric is disabled):
+
+| KPI | Description |
+|---|---|
+| `sessionOEE` | OEE over `inlet_flow` for the full session window |
+| `sessionCostTotal` | Sum of `totalCostPerHour × (0.5/3600)` for every 500ms tick |
+| `avgCostPerM3` | `sessionCostTotal / throughput` |
+| `financialRiskScore` | Mean `impact2h` of out-of-range sensors in the last snapshot |
+
+---
+
+### KPIPanel — Financial section
+
+**`src/ui/KPIPanel.js`** updated:
+- `#kpi-financial` section (hidden when all financial metrics disabled)
+- 4 cards: Session OEE, Avg €/m³, Risk score, Session cost
+- Color coding: OEE green ≥85%, amber ≥65%, red <65%; risk green=€0, amber <€50, red ≥€50
+- "⚙ Configure" button calls `ConfigModal.openAtSection('config-financial')`
+
+---
+
+### ConfigModal — financial settings section
+
+**`src/ui/ConfigModal.js`** updated:
+- `<details id="config-financial">` section rendered via `renderFinancialConfigUI()`
+- `openAtSection(sectionId)` helper: opens modal then `scrollIntoView` the target section after 120ms
+
+---
+
+### MultiChartPanel — economic layers
+
+**`src/ui/MultiChartPanel.js`** updated — three independent toggleable economic overlays:
+
+| Button | Layer | Description |
+|---|---|---|
+| `€ Cost` | Cost accumulation line | Dashed amber overlay per sensor chart; secondary € Y-axis at right edge; disabled when `costPerUnit.enabled=false` |
+| `≈ Corr` | Economic correlation | Pearson r between sensor values and `impact2h` in the analytics sidebar; `\|r\| < 0.3` green, `< 0.7` amber, `≥ 0.7` red |
+| `⚡ Impact` | Combined impact chart | Separate SVG chart below sensor charts summing `impact2h` across all active sensors; requires ≥2 visible sensors; zone bands at €0 / €10 / €50; synchronized zoom and crosshair |
+
+`⚙ Fin` button in toolbar calls `ConfigModal.openAtSection('config-financial')`.
+
+ChartStore flags (`showEconomicCost`, `showEconomicCorrelation`, `showEconomicImpact`) initialized in `MultiChartPanel.init()` via `ChartStore.setConfig()` since `ChartStore.js` was not modified.
 
 ---
 

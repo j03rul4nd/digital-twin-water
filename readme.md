@@ -44,7 +44,8 @@ Open [http://localhost:5173](http://localhost:5173) — choose your data source 
 | **Payload mapping** | Auto-detect, flat, or custom field mapping. Connect any broker format without code. |
 | **Sparkplug B** | Native Sparkplug B decode (Ignition, Cirrus Link, modern PLCs). No extra deps. |
 | **Incident simulator** | Trigger fault scenarios from the UI. 5 scenarios, 30s duration, auto-reset. |
-| **Process KPIs** | Throughput, chlorination efficiency, time-in-warning, backwash count, and more. |
+| **Process KPIs** | Throughput, chlorination efficiency, time-in-warning, backwash count, and more. Financial KPIs: OEE, cost/m³, session cost, risk score. |
+| **Financial analytics** | Per-sensor OEE, cost/unit, degradation countdown, volatility (CV), Sharpe ratio, economic impact. Configurable from sensor detail modal, KPI panel, or settings. Persisted in localStorage. |
 | **Claude Desktop** | MCP server lets Claude query sensor data, alerts, KPIs and trends in real time. |
 | **UI-configurable** | Broker, credentials, webhooks, payload mapping — all from the dashboard, no code. |
 | **Startup flow** | Explicit data source selection on load. Simulation never starts without user action. |
@@ -64,6 +65,9 @@ Click **`⊞ Compare`** in the topbar to open the analysis panel.
 - **Analytics sidebar**: per-sensor stats (μ, σ, min, max, p95, n), trend direction, Pearson correlations between all visible pairs
 - **Before/After comparison**: zoom into any window to see first-half vs. second-half mean delta and significance per sensor
 - **Export**: CSV with all series, clipboard (TSV), chart config (JSON), PNG snapshot
+- **€ Cost layer**: toggleable dashed overlay on each sensor chart showing cumulative cost accumulation with a secondary € Y-axis; disabled when costPerUnit is off
+- **≈ Corr layer**: Pearson correlation between sensor values and economic impact shown in the analytics sidebar; color-coded by strength (`|r| < 0.3` green, `< 0.7` amber, `≥ 0.7` red)
+- **⚡ Impact layer**: combined economic impact chart (sum of impact2h across all active sensors); only visible when ≥2 sensors are active; synchronized zoom and crosshair; zone bands at €0 / €10 / €50 thresholds
 
 ---
 
@@ -243,15 +247,18 @@ main.js → SensorState.update()     ← single source of truth + history buffer
   │      └──▶ EventMarkers      time-indexed store of alert timestamps
   │
   ├──▶ KPIEngine       throughput · chlorination eff · time-in-warning · backwashes
-  │      └──▶ KPIPanel          modal with bar chart + stats grid
+  │      │               + financial KPIs: sessionOEE · avgCostPerM3 · sessionCostTotal · financialRiskScore
+  │      └──▶ KPIPanel          modal with bar chart + stats grid + Financial section (4 cards)
   │      └──▶ MCPBridge         push state to mcp-bridge-server every 1s
   │
   ├──▶ SceneUpdater    ColorMapper → mesh.material.color per tick
-  ├──▶ TelemetryPanel  rows → click → SensorDetailModal (live SVG chart, stale detection)
+  ├──▶ TelemetryPanel  rows → click → SensorDetailModal (live SVG chart, stale detection, financial analytics)
   └──▶ MultiChartPanel ← ⊞ Compare button
          ChartStore    (zoom, hover, series — observable store)
          AnalyticsEngine (stats, derivative, anomalies, correlation, LTTB)
          EventMarkers  (vertical flag lines at alert timestamps)
+         FinancialConfig (localStorage-persisted config, subscribe/notify pattern)
+         FinancialAnalytics (pure: OEE, cost/unit, degradation, volatility, Sharpe, impact)
 
 MQTTAdapter  (real broker)
   │  topic = spBv1.0/... → SparkplugParser.parse() (Protobuf decode)
@@ -289,6 +296,8 @@ Claude Desktop ← mcp-server.js ← mcp-state.json ← mcp-bridge-server ← MC
 **V1.3 ✅** Sparkplug B · Process KPIs · Claude Desktop MCP integration
 
 **V1.4 ✅** DataSourceManager · StartupModal · SensorDetailModal v2 · MultiChartPanel (multi-sensor analysis, event markers, minimap, before/after comparison, PNG export) · AnalyticsEngine · ChartStore · EventMarkers
+
+**V1.5 ✅** Financial analytics module · FinancialAnalytics.js (6 pure functions: OEE, cost/unit, degradation, volatility, Sharpe, economic impact) · FinancialConfig.js (localStorage-persisted singleton) · renderFinancialConfigUI.js (shared config renderer) · SensorDetailModal ⚙ inline config panel · KPIEngine 4 financial KPIs · KPIPanel Financial section · ConfigModal financial section · MultiChartPanel 3 economic layers (€ Cost, ≈ Corr, ⚡ Impact)
 
 **V2.0 — Planned**
 [`feature/ai-advisor`](../../tree/feature/ai-advisor): TinyLlama via WebLLM, natural language process diagnostics (~700MB, opt-in)
