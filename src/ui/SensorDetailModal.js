@@ -20,6 +20,36 @@ import SensorState       from '../sensors/SensorState.js';
 import { SENSORS }       from '../sensors/SensorConfig.js';
 import { getSensorState } from '../scene/ColorMapper.js';
 
+// ─── Analytics configuration ──────────────────────────────────────────────────
+const ANALYTICS_CONFIG = {
+  oee: {
+    enabled: true
+  },
+  costPerUnit: {
+    enabled: true,
+    energyCostPerHour: 0.15,
+    pumpPowerKW: 5,
+    chemicalCostPerM3: 0.02
+  },
+  degradation: {
+    enabled: true,
+    minSamples: 20
+  },
+  volatility: {
+    enabled: true,
+    windowSize: 120
+  },
+  sharpe: {
+    enabled: true,
+    baseline: 0
+  },
+  economicImpact: {
+    enabled: true,
+    costPerDeviationUnit: 0.5,
+    costPerHourDowntime: 50
+  }
+};
+
 // ─── Chart geometry ───────────────────────────────────────────────────────────
 const W   = 420;
 const H   = 160;
@@ -43,6 +73,107 @@ function s(tag, attrs = {}) {
   const el = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
   return el;
+}
+
+// ─── Analytics pure functions ─────────────────────────────────────────────────
+
+function computeOEE(history, config) {
+  if (history.length === 0) return null;
+  const values    = history.map(p => p.value);
+  const finite    = values.filter(v => typeof v === 'number' && isFinite(v));
+  const n         = finite.length;
+  const availability = n / history.length;
+  const mean      = n > 0 ? finite.reduce((a, b) => a + b, 0) / n : 0;
+  const performance  = Math.min(1, Math.max(0, mean / config.rangeMax));
+  const quality   = n > 0
+    ? finite.filter(v => v >= config.warning.low && v <= config.warning.high).length / n
+    : 0;
+  return { oee: availability * performance * quality, availability, performance, quality };
+}
+
+function computeCostPerUnit(currentValue, analyticsConfig) {
+  if (currentValue == null || currentValue <= 0) return null;
+  const { pumpPowerKW, energyCostPerHour, chemicalCostPerM3 } = analyticsConfig.costPerUnit;
+  const energyCost      = pumpPowerKW * energyCostPerHour;
+  const totalCostPerHour = energyCost + currentValue * chemicalCostPerM3;
+  return { costPerUnit: totalCostPerHour / currentValue, totalCostPerHour };
+}
+
+function computeDegradation(history, config, analyticsConfig) {
+  const { minSamples } = analyticsConfig.degradation;
+  if (history.length < minSamples) return null;
+
+  const pts = [];
+  for (let i = 0; i < history.length; i++) {
+    const v = history[i].value;
+    if (typeof v === 'number' && isFinite(v)) pts.push({ x: i, y: v });
+  }
+  if (pts.length < minSamples) return null;
+
+  const n = pts.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (const { x, y } of pts) { sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x; }
+  const denom = n * sumX2 - sumX * sumX;
+  if (Math.abs(denom) < 1e-10) return { degrading: false };
+
+  const slope     = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+
+  if (Math.abs(slope) < 1e-6) return { degrading: false };
+
+  const threshold            = slope > 0 ? config.danger.high : config.danger.low;
+  const timeToThresholdSeconds = ((threshold - intercept) / slope) * 0.5;
+  return { degrading: true, timeToThresholdSeconds, slope };
+}
+
+function computeVolatility(history, analyticsConfig) {
+  if (history.length < 2) return null;
+  const all = history.map(p => p.value).filter(v => typeof v === 'number' && isFinite(v));
+  if (all.length < 2) return null;
+
+  const hMean       = all.reduce((a, b) => a + b, 0) / all.length;
+  const historicalStd = Math.sqrt(all.reduce((a, v) => a + (v - hMean) ** 2, 0) / all.length);
+  if (historicalStd < 1e-10) return null;
+
+  const win    = history.slice(-analyticsConfig.volatility.windowSize)
+    .map(p => p.value).filter(v => typeof v === 'number' && isFinite(v));
+  const wMean  = win.reduce((a, b) => a + b, 0) / win.length;
+  const currentStd = Math.sqrt(win.reduce((a, v) => a + (v - wMean) ** 2, 0) / win.length);
+
+  const ratio = currentStd / historicalStd;
+  const level = ratio < 0.7 ? 'low' : ratio <= 1.4 ? 'normal' : 'high';
+  return { currentStd, historicalStd, ratio, level };
+}
+
+function computeSharpe(history, config, analyticsConfig) {
+  if (history.length < 2) return null;
+  const vals = history.map(p => p.value).filter(v => typeof v === 'number' && isFinite(v));
+  if (vals.length < 2) return null;
+
+  const mean     = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const std      = Math.sqrt(vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length);
+  if (std < 1e-6) return null;
+
+  const baseline = analyticsConfig.sharpe.baseline === 0 ? config.normal.low : analyticsConfig.sharpe.baseline;
+  return { sharpe: (mean - baseline) / std, mean, std, baseline };
+}
+
+function computeEconomicImpact(currentValue, config, analyticsConfig) {
+  if (currentValue == null) return null;
+  if (currentValue >= config.normal.low && currentValue <= config.normal.high) {
+    return { inRange: true, impact2h: 0 };
+  }
+  const deviation    = currentValue < config.normal.low
+    ? config.normal.low  - currentValue
+    : currentValue - config.normal.high;
+  const impactPerHour = deviation * analyticsConfig.economicImpact.costPerDeviationUnit;
+  return { inRange: false, deviation, impactPerHour, impact2h: impactPerHour * 2 };
+}
+
+function _formatDuration(seconds) {
+  if (seconds < 3600)  return Math.round(seconds / 60) + 'm';
+  if (seconds < 86400) return (seconds / 3600).toFixed(1) + 'h';
+  return (seconds / 86400).toFixed(1) + 'd';
 }
 
 // ─── Modal singleton ──────────────────────────────────────────────────────────
@@ -197,6 +328,11 @@ const SensorDetailModal = {
             </table>
           </div>
         </details>
+
+        <div id="sd-advanced-metrics" style="display:none">
+          <div class="sd-am-header">Advanced analytics</div>
+          <div id="sd-am-grid"></div>
+        </div>
 
         <div id="sd-footer">
           <span class="sd-hint">Last 3 min · 500ms resolution · Hover chart for details</span>
@@ -393,6 +529,9 @@ const SensorDetailModal = {
     // ── History table (only if open — avoids thrashing hidden DOM) ─────────────
     const details = document.getElementById('sd-history-details');
     if (details?.open) this._renderTable(history, id, config);
+
+    // ── Advanced analytics ─────────────────────────────────────────────────────
+    this._renderAdvancedMetrics(history, current, config);
   },
 
   // ─── Stale detection ─────────────────────────────────────────────────────────
@@ -567,6 +706,113 @@ const SensorDetailModal = {
       el.textContent = label;
       g.appendChild(el);
     });
+  },
+
+  // ─── Advanced analytics panel ─────────────────────────────────────────────────
+
+  _renderAdvancedMetrics(history, current, config) {
+    const el = document.getElementById('sd-advanced-metrics');
+    if (!el) return;
+
+    const cfg = ANALYTICS_CONFIG;
+    const anyEnabled = cfg.oee.enabled || cfg.costPerUnit.enabled ||
+      cfg.degradation.enabled || cfg.volatility.enabled ||
+      cfg.sharpe.enabled || cfg.economicImpact.enabled;
+
+    if (!anyEnabled) { el.style.display = 'none'; return; }
+    el.style.display = '';
+
+    // Memoize: only recalculate when history grows
+    if (!this._lastAnalytics || this._lastAnalytics.historyLen !== history.length) {
+      this._lastAnalytics = {
+        historyLen:     history.length,
+        oee:            cfg.oee.enabled           ? computeOEE(history, config)                        : null,
+        costPerUnit:    cfg.costPerUnit.enabled    ? computeCostPerUnit(current, cfg)                   : null,
+        degradation:    cfg.degradation.enabled    ? computeDegradation(history, config, cfg)           : null,
+        volatility:     cfg.volatility.enabled     ? computeVolatility(history, cfg)                    : null,
+        sharpe:         cfg.sharpe.enabled         ? computeSharpe(history, config, cfg)                : null,
+        economicImpact: cfg.economicImpact.enabled ? computeEconomicImpact(current, config, cfg)        : null,
+      };
+    }
+
+    const a = this._lastAnalytics;
+    const grid = document.getElementById('sd-am-grid');
+    if (!grid) return;
+
+    const metrics = [];
+
+    if (cfg.oee.enabled && a.oee) {
+      const { oee, availability, performance, quality } = a.oee;
+      const color = oee >= 0.85 ? 'var(--green)' : oee >= 0.65 ? 'var(--amber)' : 'var(--red)';
+      metrics.push({
+        label: 'OEE',
+        value: (oee * 100).toFixed(1) + '%',
+        color,
+        sub: `A:${(availability * 100).toFixed(0)}% P:${(performance * 100).toFixed(0)}% Q:${(quality * 100).toFixed(0)}%`,
+      });
+    }
+
+    if (cfg.costPerUnit.enabled && a.costPerUnit) {
+      const { costPerUnit, totalCostPerHour } = a.costPerUnit;
+      metrics.push({
+        label: 'Cost / unit',
+        value: '€' + costPerUnit.toFixed(4) + '/unit',
+        color: 'var(--text1)',
+        sub: '€' + totalCostPerHour.toFixed(3) + '/h',
+      });
+    }
+
+    if (cfg.degradation.enabled && a.degradation) {
+      const d = a.degradation;
+      let color, value, sub = '';
+      if (!d.degrading) {
+        color = 'var(--green)'; value = 'stable';
+      } else {
+        const t = d.timeToThresholdSeconds;
+        color = t < 3600 ? 'var(--red)' : t < 86400 ? 'var(--amber)' : 'var(--green)';
+        value = 'in ' + _formatDuration(t);
+        sub   = 'slope ' + d.slope.toFixed(4) + '/s';
+      }
+      metrics.push({ label: 'Degradation', value, color, sub });
+    }
+
+    if (cfg.volatility.enabled && a.volatility) {
+      const { level, ratio } = a.volatility;
+      const color = level === 'low' ? 'var(--green)' : level === 'normal' ? 'var(--text1)' : 'var(--amber)';
+      metrics.push({ label: 'Volatility', value: level.toUpperCase(), color, sub: 'ratio ' + ratio.toFixed(2) });
+    }
+
+    if (cfg.sharpe.enabled && a.sharpe) {
+      const { sharpe, mean, std } = a.sharpe;
+      const color = sharpe >= 2 ? 'var(--green)' : sharpe >= 1 ? 'var(--amber)' : 'var(--red)';
+      metrics.push({
+        label: 'Sharpe',
+        value: sharpe.toFixed(2),
+        color,
+        sub: `μ:${mean.toFixed(2)} σ:${std.toFixed(2)}`,
+      });
+    }
+
+    if (cfg.economicImpact.enabled && a.economicImpact) {
+      const ei = a.economicImpact;
+      let color, value, sub = '';
+      if (ei.inRange) {
+        color = 'var(--green)'; value = 'In range';
+      } else {
+        color = ei.impact2h >= 50 ? 'var(--red)' : 'var(--amber)';
+        value = '€' + ei.impact2h.toFixed(2) + ' / 2h';
+        sub   = '€' + ei.impactPerHour.toFixed(2) + '/h';
+      }
+      metrics.push({ label: 'Econ. impact', value, color, sub });
+    }
+
+    grid.innerHTML = metrics.map(m => `
+      <div class="sd-am-metric">
+        <div class="sd-am-label">${m.label}</div>
+        <div class="sd-am-value" style="color:${m.color}">${m.value}</div>
+        ${m.sub ? `<div class="sd-am-sub">${m.sub}</div>` : ''}
+      </div>
+    `).join('');
   },
 
   // ─── History table ────────────────────────────────────────────────────────────
@@ -859,6 +1105,62 @@ const SensorDetailModal = {
       #sd-footer {
         border-top: 1px solid var(--line);
         margin-top: 10px;
+      }
+
+      /* ── Advanced analytics panel ─────────────────────────────────────── */
+
+      #sd-advanced-metrics {
+        margin: 10px 16px 0;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .sd-am-header {
+        padding: 7px 12px;
+        background: var(--bg2);
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-size: 10px;
+        color: var(--text2);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        border-bottom: 1px solid var(--line);
+      }
+
+      #sd-am-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 1px;
+        background: var(--line);
+      }
+
+      .sd-am-metric {
+        background: var(--bg1);
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .sd-am-label {
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-size: 9px;
+        color: var(--text2);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .sd-am-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .sd-am-sub {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        color: var(--text2);
       }
     `;
     document.head.appendChild(style);
