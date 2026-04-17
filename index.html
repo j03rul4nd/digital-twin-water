@@ -1502,6 +1502,46 @@
     .wh-input:focus, .mapper-input:focus { border-color: var(--blue); }
     .wh-input::placeholder, .mapper-input::placeholder { color: var(--text2); }
 
+    /* ── Select / Dropdown — design-system styling ───────────────────────── */
+    /* Removes native browser chrome; injects custom chevron arrow.           */
+    /* Applies automatically to <select> using .wh-input or .mapper-input.   */
+    /* Also exposes a standalone .ui-select utility for future components.    */
+    select.wh-input,
+    select.mapper-input,
+    .ui-select {
+      appearance: none;
+      -webkit-appearance: none;
+      /* Chevron — muted gray default */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2352565f' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 9px center;
+      background-size: 10px 10px;
+      padding-right: 28px;
+      cursor: pointer;
+    }
+    select.wh-input:hover:not(:focus),
+    select.mapper-input:hover:not(:focus),
+    .ui-select:hover:not(:focus) {
+      border-color: var(--line2);
+      /* Chevron — text1 on hover */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a0a4ad' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+    select.wh-input:focus,
+    select.mapper-input:focus,
+    .ui-select:focus {
+      /* Chevron — blue on focus */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+    /* option elements don't support CSS variables — use literals */
+    select.wh-input option,
+    select.mapper-input option,
+    .ui-select option {
+      background: #1c1f24; /* --bg3 */
+      color: #f0f0f0;      /* --text0 */
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+
     .wh-label, .mapper-section-title {
       font-family: 'IBM Plex Sans', sans-serif;
       font-size: 10px; color: var(--text2);
@@ -1566,13 +1606,13 @@
     }
     .wh-btn-primary:hover, .mapper-btn-primary:hover { opacity: 0.8; }
 
-    .wh-btn-icon {
+    .wh-btn-icon, .mapper-btn-icon {
       font-size: 11px; color: var(--text2); background: transparent;
       border: none; cursor: pointer; padding: 3px 5px; border-radius: 3px;
       transition: color 0.15s, background 0.15s;
     }
-    .wh-btn-icon:hover { color: var(--text0); background: var(--bg3); }
-    .wh-btn-delete:hover { color: var(--red); }
+    .wh-btn-icon:hover, .mapper-btn-icon:hover { color: var(--text0); background: var(--bg3); }
+    .wh-btn-delete:hover, .mapper-remove-row:hover { color: var(--red); }
 
     /* ══ PAYLOAD MAPPER PANEL ════════════════════════════════════════════════ */
 
@@ -1738,6 +1778,47 @@
     }
 
 
+
+    /* ═══════════════════════════════════════════════════════════════════
+      RESPONSIVE — breakpoints intermedios (desktop ancho → tablet)
+      ═══════════════════════════════════════════════════════════════════ */
+
+    /* ── 1180px — topbar demasiado lleno ────────────────────────────── */
+    /* Ocultar elementos decorativos/secundarios antes de sacrificar acciones. */
+    @media (max-width: 1180px) {
+      .topbar-tick,
+      #btn-docs {
+        display: none;
+      }
+    }
+
+    /* ── 1024px — tablet / laptop pequeño ───────────────────────────── */
+    @media (max-width: 1024px) and (min-width: 769px) {
+      /* Paneles laterales — más estrechos para dar más espacio a la escena */
+      #panel-left  { width: 185px; }
+      #panel-right { width: 198px; }
+
+      /* Ocultar botones de baja prioridad — quedan: Simulation, Replay,
+         Compare, KPIs (los más usados en operación diaria) */
+      #btn-export,
+      #btn-webhooks,
+      #btn-payload-mapper {
+        display: none;
+      }
+
+      /* Modales — altura máxima moderada para que no tapen toda la escena */
+      #config-modal,
+      #sensor-detail-modal,
+      #webhook-modal,
+      #mapper-modal,
+      #kpi-modal {
+        max-height: 88vh;
+        overflow-y: auto;
+      }
+
+      /* Sensor rows — nombre más corto sin cortar el valor */
+      .sensor-name { font-size: 9px; }
+    }
 
     /* ═══════════════════════════════════════════════════════════════════
       RESPONSIVE MOBILE — añadir al final de la sección <style> en index.html
@@ -2050,6 +2131,51 @@
       #sd-chart {
         height: 90px;
       }
+
+      /* ── Touch targets — mínimo 44px (Apple HIG) ─────────────────── */
+      /* Sensor rows ya tienen padding suficiente; ampliamos en móvil. */
+      .sensor-row {
+        min-height: 44px;
+        padding: 10px 12px;
+      }
+
+      /* Alert items — más padding para dedos gordos */
+      .alert-item {
+        padding: 12px 12px 12px 15px;
+      }
+
+      /* Botones de modal — más fáciles de tocar */
+      .mapper-btn-ghost,
+      .mapper-btn-primary,
+      .wh-btn-ghost,
+      .wh-btn-primary,
+      .cfg-btn-ghost,
+      .cfg-btn-primary {
+        padding: 9px 16px;
+        font-size: 11px;
+      }
+
+      /* Select / Dropdown — altura de toque cómoda */
+      select.mapper-input,
+      select.wh-input,
+      .ui-select {
+        min-height: 40px;
+      }
+
+      /* Mapper mapping row — reorganizar en columna en móvil */
+      .mapper-mapping-row {
+        grid-template-columns: 1fr 24px;
+        grid-template-rows: auto auto;
+        gap: 6px 6px;
+      }
+      .mapper-arrow { display: none; }
+      .mapper-mapping-row .mapper-from { grid-column: 1; grid-row: 1; }
+      .mapper-mapping-row .mapper-to   { grid-column: 1; grid-row: 2; }
+      .mapper-mapping-row .mapper-to-custom { grid-column: 1; grid-row: 3; }
+      .mapper-mapping-row .mapper-btn-icon  { grid-column: 2; grid-row: 1; align-self: center; }
+
+      /* Config modal — una columna en móvil */
+      .cfg-row { grid-template-columns: 1fr; }
     }
 
     /* ── Ajustes para pantallas muy pequeñas (< 375px) ─────────────────── */

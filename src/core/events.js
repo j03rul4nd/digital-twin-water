@@ -8,7 +8,7 @@
  * Los forks que dependan del payload pueden hacer un check explícito.
  */
 
-export const EVENT_CONTRACT_VERSION = '3';
+export const EVENT_CONTRACT_VERSION = '4';
 
 export const EVENTS = {
   // ─── Datos de sensores ────────────────────────────────────────────────────
@@ -90,4 +90,10 @@ export const EVENTS = {
 
   // payload: { index: number, snapshot: { timestamp, readings, index, activeAlertIds } }
   REPLAY_SCRUBBED: 'replay:scrubbed',
+
+  // ─── Adaptive anomaly detection ───────────────────────────────────────────
+  // Emitted by RuleEngine every 5 seconds when ADAPTIVE_RULES_ENABLED is true.
+  // purpose: future UI consumers (TelemetryPanel baseline indicators)
+  // payload: { baselines: { [sensorId]: { mean: number, std: number, n: number } | null } }
+  BASELINE_UPDATED: 'baseline:updated',
 };

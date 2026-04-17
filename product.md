@@ -3,7 +3,7 @@
 
 > Living document. Update every time an architectural decision is made or the architecture changes.
 >
-> Last updated: Iteration 10 (V1.5 — FinancialAnalytics, FinancialConfig, renderFinancialConfigUI, financial KPIs in KPIEngine/KPIPanel, economic overlay layers in MultiChartPanel)
+> Last updated: Iteration 12 (V1.7 — BaselineEngine, adaptive Z-score anomaly detection in RuleEngine, BASELINE_UPDATED event; V1.6 — ReplayController, ReplayBar, replay timeline UI)
 
 ---
 
@@ -258,7 +258,7 @@ All EventBus event names live in a single exported `EVENTS` object. No module us
 
 ```js
 // src/core/events.js — source of truth for all system events
-export const EVENT_CONTRACT_VERSION = '2';
+export const EVENT_CONTRACT_VERSION = '4';
 
 export const EVENTS = {
   SENSOR_UPDATE:        'sensor:update',
@@ -275,6 +275,12 @@ export const EVENTS = {
   DATA_SOURCE_CHANGED:  'datasource:changed',
   DATA_SOURCE_CLEARING: 'datasource:clearing',
   OPEN_MULTI_CHART:     'chart:open-multi',
+  // V1.6 — Replay mode
+  REPLAY_ENTERED:       'replay:entered',   // payload: { index, snapshot }
+  REPLAY_EXITED:        'replay:exited',    // payload: none
+  REPLAY_SCRUBBED:      'replay:scrubbed',  // payload: { index, snapshot }
+  // V1.7 — Adaptive anomaly detection
+  BASELINE_UPDATED:     'baseline:updated', // payload: { baselines: { [sensorId]: { mean, std, n } | null } }
 };
 ```
 
@@ -488,6 +494,51 @@ FinancialConfig.reset()                   // restores DEFAULTS + persists + noti
 
 Storage key: `wtp_financial_config`. Size: ~300 bytes JSON. No quota risk.
 
+### Decision 30 — ReplayController: replay mode without a second history buffer ★
+
+`ReplayController` lets the user pause live data and scrub through the last N snapshots of `SensorState.history`. It reuses the **existing** history buffer — no second copy.
+
+Three events model the lifecycle:
+
+```
+REPLAY_ENTERED  — payload: { index, snapshot }  — all consumers switch to historical render
+REPLAY_SCRUBBED — payload: { index, snapshot }  — user dragged to a new point
+REPLAY_EXITED   — payload: none                  — consumers return to live render
+```
+
+Consumers (`TelemetryPanel`, `SceneUpdater`, `AlertPanel`, `SensorDetailModal`) subscribe to these events and render from `snapshot.readings` / `snapshot.activeAlertIds` instead of live state. They do **not** receive `SENSOR_UPDATE` during replay.
+
+**Design constraints:**
+- `ReplayController` never modifies `SensorState` — it only reads `SensorState.history`
+- Live sensor ticks continue arriving during replay (Worker keeps running); they are buffered by `SensorState` but not emitted downstream
+- On `REPLAY_EXITED` consumers call `getActiveAlerts()` to resync alert state rather than replaying every RULE_TRIGGERED event
+
+`ReplayBar.js` renders the timeline scrubber into the DOM and calls `ReplayController.scrubTo(index)` on drag. It subscribes to `DATA_SOURCE_CLEARING` to hide itself when the source resets.
+
+### Decision 31 — BaselineEngine: pure stateless Z-score functions ★
+
+Identical pattern to Decision 23 (AnalyticsEngine) and Decision 27 (FinancialAnalytics). All adaptive detection logic lives in `src/sensors/BaselineEngine.js` as three named exports with no side effects, no EventBus references, no imports from `ui/` or `core/`:
+
+```js
+export function computeBaseline(sensorId, history, windowSeconds = 120)
+// → { mean, std, n, windowSeconds } | null (null if < 20 valid samples in window)
+
+export function isAnomaly(value, baseline, sigmaThreshold = 2.5)
+// → { anomaly: boolean, zScore: number, direction: 'high'|'low'|null }
+
+export function formatAnomalyMessage(sensorId, result, baseline, unit)
+// → "Filter #1 DP +2.8σ above recent baseline (μ=98.3 mbar)"
+```
+
+`RuleEngine` drives the adaptive layer via `ADAPTIVE_RULES[]` — 5 rules, one per monitored sensor — evaluated in parallel with the existing `RULES[]` on every tick. Separate `adaptiveActiveAlerts` and `adaptiveCooldowns` Maps prevent interference with static rules.
+
+**Key design choices:**
+- `ADAPTIVE_RULES_ENABLED` kill switch: set to `false` to disable adaptive detection at zero overhead
+- 30-second cooldown per rule prevents alert spam during sustained anomaly
+- `BASELINE_UPDATED` event emitted every 5s exposes rolling baselines for future UI consumers (e.g., TelemetryPanel baseline indicators)
+- `BaselineEngine` uses an internal `SHORT_LABELS` map instead of importing `SensorConfig` to remain fully self-contained
+- `DATA_SOURCE_CLEARING` clears adaptive state and cancels the baseline interval; `DATA_SOURCE_CHANGED` restarts it
+
 ### Decision 29 — Shared DOM renderer for financial config UI ★
 
 The financial config form appears in two places: the SensorDetailModal's inline ⚙ panel and the ConfigModal's `<details>` section. Without a shared renderer, both would have diverged in markup and behavior within a week of the first fork.
@@ -577,7 +628,8 @@ digital-twin-water/
     │   ├── AnimationLoop.js
     │   ├── EventBus.js
     │   ├── DataSourceManager.js  ← state machine: none|simulation|mqtt ★
-    │   └── events.js             ← event catalog + EVENT_CONTRACT_VERSION ★
+    │   ├── ReplayController.js   ← replay mode: history scrubbing + REPLAY_* events ★
+    │   └── events.js             ← event catalog + EVENT_CONTRACT_VERSION '4' ★
     │
     ├── sensors/
     │   ├── SensorConfig.js       ← 10 WTP sensors + ranges ★
@@ -586,7 +638,8 @@ digital-twin-water/
     │   ├── SensorWorker.js
     │   ├── sensor.worker.js      ← simulation with causal correlations ★
     │   ├── MQTTAdapter.js
-    │   ├── RuleEngine.js         ← RULES[] + evaluation + activeAlerts ★
+    │   ├── RuleEngine.js         ← RULES[] + ADAPTIVE_RULES[] + evaluation + activeAlerts ★
+    │   ├── BaselineEngine.js     ← pure stateless Z-score baseline functions ★
     │   └── KPIEngine.js
     │
     ├── scene/
@@ -613,6 +666,7 @@ digital-twin-water/
     │   ├── PayloadMapperPanel.js
     │   ├── WebhookPanel.js
     │   ├── StartupModal.js       ← explicit data source selection ★
+    │   ├── ReplayBar.js          ← replay timeline scrubber UI ★
     │   └── MultiChartPanel.js    ← multi-sensor analysis panel ★
     │
     └── utils/
@@ -688,6 +742,17 @@ PHASE 6.5 — Financial analytics (V1.5)
   ConfigModal.js             → Financial <details> section, openAtSection(id) method ★
   MultiChartPanel.js         → € Cost overlay, ≈ Corr sidebar section, ⚡ Impact combined chart ★
 
+PHASE 6.6 — Replay mode (V1.6)
+  ReplayController.js → history scrubbing, REPLAY_ENTERED/SCRUBBED/EXITED events ★
+  ReplayBar.js        → timeline scrubber UI, step buttons, exit button ★
+  events.js           → EVENT_CONTRACT_VERSION '3', REPLAY_* events ★
+  Consumers updated   → TelemetryPanel, SceneUpdater, AlertPanel, SensorDetailModal render from snapshot ★
+
+PHASE 6.7 — Adaptive anomaly detection (V1.7)
+  BaselineEngine.js   → computeBaseline, isAnomaly, formatAnomalyMessage (pure stateless) ★
+  RuleEngine.js       → ADAPTIVE_RULES[], adaptiveActiveAlerts, adaptiveCooldowns, _startBaselineInterval() ★
+  events.js           → EVENT_CONTRACT_VERSION '4', BASELINE_UPDATED event ★
+
 PHASE 7 — V2.0 (post-traction)
   feature/ai-advisor branch
   ai.worker.js + WebLLM + TinyLlama
@@ -740,6 +805,8 @@ PHASE 7 — V2.0 (post-traction)
 - Financial analytics module (OEE, cost/unit, degradation, volatility, Sharpe, economic impact)
 - Economic overlay layers in MultiChartPanel (€ Cost, ≈ Corr, ⚡ Impact)
 - Financial KPIs in KPIPanel + ConfigModal financial section
+- Replay mode: scrub through last 6 minutes of history without a second buffer
+- Adaptive anomaly detection: Z-score baseline engine with 5 ADAPTIVE_RULES and 30s cooldown
 
 ### COULD HAVE — V2.0
 
@@ -780,6 +847,11 @@ PHASE 7 — V2.0 (post-traction)
 | FinancialConfig observable singleton | Prop drilling / Redux | localStorage persistence + subscribe/notify in 60 lines; zero external deps |
 | Shared renderFinancialConfigUI renderer | Duplicated DOM in each panel | Single source of truth for config UI; called identically from SensorDetailModal and ConfigModal |
 | Financial KPIs always-present in KPIS_UPDATED | Optional keys | KPIPanel never guards against missing keys; value is 0 when metric disabled, never absent |
+| ReplayController reads existing SensorState.history | Second history buffer | Zero memory overhead; live ticks keep arriving and buffer while replay is active |
+| Three REPLAY_* events for replay lifecycle | Single replay:tick event | Consumers only need to handle enter/exit/scrub — not rebuild a continuous stream |
+| BaselineEngine as pure stateless functions | Stateful class inside RuleEngine | Same pattern as AnalyticsEngine/FinancialAnalytics; no cleanup, no init(), trivially testable |
+| ADAPTIVE_RULES_ENABLED kill switch | Always-on adaptive detection | Zero overhead when disabled; safe to ship without waiting for baseline warmup UX |
+| 30s cooldown per adaptive rule | Hysteresis band | Simple timestamp comparison; prevents spam without requiring a "resolved" dwell period |
 
 ---
 

@@ -24,6 +24,64 @@
 import EventBus from '../core/EventBus.js';
 import { EVENTS } from '../core/events.js';
 import SensorState from './SensorState.js';
+import { SENSORS } from './SensorConfig.js';
+import {
+  computeBaseline,
+  isAnomaly,
+  formatAnomalyMessage,
+} from './BaselineEngine.js';
+
+// ─── Adaptive anomaly detection toggle ───────────────────────────────────────
+const ADAPTIVE_RULES_ENABLED = true;
+// Set to false to disable all adaptive rules with zero overhead
+
+// ─── Adaptive rules ───────────────────────────────────────────────────────────
+// Each entry targets a single sensor where statistical deviation from its own
+// recent behavior is operationally meaningful. The threshold and cooldown are
+// tuned per sensor — filter DPs are more sensitive than flow-based sensors.
+
+const ADAPTIVE_RULES = [
+  {
+    id: 'anomaly_inlet_flow',
+    severity: 'warning',
+    sensorIds: ['inlet_flow'],
+    sigmaThreshold: 2.5,
+    minBaselineSamples: 20,
+    cooldownSeconds: 30,
+  },
+  {
+    id: 'anomaly_filter_1_dp',
+    severity: 'warning',
+    sensorIds: ['filter_1_dp'],
+    sigmaThreshold: 2.0,
+    minBaselineSamples: 20,
+    cooldownSeconds: 30,
+  },
+  {
+    id: 'anomaly_filter_2_dp',
+    severity: 'warning',
+    sensorIds: ['filter_2_dp'],
+    sigmaThreshold: 2.0,
+    minBaselineSamples: 20,
+    cooldownSeconds: 30,
+  },
+  {
+    id: 'anomaly_filtered_turbidity',
+    severity: 'warning',
+    sensorIds: ['filtered_turbidity'],
+    sigmaThreshold: 2.0,
+    minBaselineSamples: 20,
+    cooldownSeconds: 30,
+  },
+  {
+    id: 'anomaly_residual_chlorine',
+    severity: 'warning',
+    sensorIds: ['residual_chlorine'],
+    sigmaThreshold: 2.5,
+    minBaselineSamples: 20,
+    cooldownSeconds: 30,
+  },
+];
 
 // ─── Reglas ───────────────────────────────────────────────────────────────────
 // Para añadir una regla nueva, añadir un objeto aquí.
@@ -229,8 +287,19 @@ const RULES = [
 /** @type {Map<string, object>} alertId → alert object */
 const activeAlerts = new Map();
 
+/** @type {Map<string, object>} adaptive alertId → alert object */
+const adaptiveActiveAlerts = new Map();
+
+/** @type {Map<string, number>} adaptive alertId → timestamp of last activation */
+const adaptiveCooldowns = new Map();
+
 /** @type {Function | null} */
-let _sensorHandler = null;
+let _sensorHandler  = null;
+let _clearingHandler = null;
+let _changedHandler  = null;
+
+/** @type {ReturnType<typeof setInterval> | null} */
+let _baselineInterval = null;
 
 // ─── Lógica de evaluación ─────────────────────────────────────────────────────
 
@@ -283,6 +352,48 @@ function evaluate(snapshot) {
       EventBus.emit(EVENTS.RULE_TRIGGERED, resolved);
     }
   });
+
+  // ── Adaptive anomaly detection ────────────────────────────────────────────
+  // Parallel to the RULES loop — uses statistical deviation from each sensor's
+  // own 2-minute rolling baseline instead of fixed thresholds.
+  if (ADAPTIVE_RULES_ENABLED) {
+    for (const rule of ADAPTIVE_RULES) {
+      const sensorId = rule.sensorIds[0];
+      const value    = readings[sensorId];
+      if (value === undefined || isNaN(value)) continue;
+
+      const baseline = computeBaseline(sensorId, SensorState.history, 120);
+      const result   = isAnomaly(value, baseline, rule.sigmaThreshold);
+
+      const lastFired   = adaptiveCooldowns.get(rule.id) ?? 0;
+      const coolingDown = (timestamp - lastFired) < rule.cooldownSeconds * 1000;
+
+      if (result.anomaly && !adaptiveActiveAlerts.has(rule.id) && !coolingDown) {
+        const cfg   = SENSORS.find(s => s.id === sensorId);
+        const alert = {
+          id:        rule.id,
+          severity:  rule.severity,
+          sensorIds: rule.sensorIds,
+          message:   formatAnomalyMessage(sensorId, result, baseline, cfg?.unit ?? ''),
+          timestamp,
+          active:    true,
+        };
+        adaptiveActiveAlerts.set(rule.id, alert);
+        adaptiveCooldowns.set(rule.id, timestamp);
+        EventBus.emit(EVENTS.RULE_TRIGGERED, alert);
+      }
+
+      if (!result.anomaly && adaptiveActiveAlerts.has(rule.id)) {
+        const resolved = {
+          ...adaptiveActiveAlerts.get(rule.id),
+          active:    false,
+          timestamp,
+        };
+        adaptiveActiveAlerts.delete(rule.id);
+        EventBus.emit(EVENTS.RULE_TRIGGERED, resolved);
+      }
+    }
+  }
 }
 
 // ─── API pública ──────────────────────────────────────────────────────────────
@@ -295,33 +406,63 @@ const RuleEngine = {
   init() {
     _sensorHandler = (snapshot) => evaluate(snapshot);
     EventBus.on(EVENTS.SENSOR_UPDATE, _sensorHandler);
+
+    // Clear adaptive state when the data source resets.
+    _clearingHandler = () => {
+      adaptiveActiveAlerts.clear();
+      adaptiveCooldowns.clear();
+      if (_baselineInterval !== null) {
+        clearInterval(_baselineInterval);
+        _baselineInterval = null;
+      }
+    };
+    EventBus.on(EVENTS.DATA_SOURCE_CLEARING, _clearingHandler);
+
+    // Restart the baseline interval when a new source becomes active.
+    _changedHandler = () => {
+      if (ADAPTIVE_RULES_ENABLED && _baselineInterval === null) {
+        _baselineInterval = _startBaselineInterval();
+      }
+    };
+    EventBus.on(EVENTS.DATA_SOURCE_CHANGED, _changedHandler);
+
+    if (ADAPTIVE_RULES_ENABLED) {
+      _baselineInterval = _startBaselineInterval();
+    }
   },
 
   /**
    * Devuelve una copia del array de alertas activas.
+   * Includes both threshold-based and adaptive alerts.
    * Usado por AlertPanel.init() para recuperar el estado existente
    * sin esperar al próximo tick (Decisión 7).
    * @returns {object[]}
    */
   getActiveAlerts() {
-    return [...activeAlerts.values()];
+    return [
+      ...activeAlerts.values(),
+      ...adaptiveActiveAlerts.values(),
+    ];
   },
 
   /**
-   * Limpia todas las alertas activas.
+   * Limpia todas las alertas activas (threshold + adaptive).
    * Llamar desde main.js junto a SensorState.reset() al cambiar de fuente.
    */
   clearAlerts() {
+    const now = Date.now();
     // Emitir active: false para cada alerta activa antes de limpiar
     // para que AlertPanel y AlertSystem actualicen su estado visual
     activeAlerts.forEach((alert) => {
-      EventBus.emit(EVENTS.RULE_TRIGGERED, {
-        ...alert,
-        active: false,
-        timestamp: Date.now(),
-      });
+      EventBus.emit(EVENTS.RULE_TRIGGERED, { ...alert, active: false, timestamp: now });
     });
     activeAlerts.clear();
+
+    adaptiveActiveAlerts.forEach((alert) => {
+      EventBus.emit(EVENTS.RULE_TRIGGERED, { ...alert, active: false, timestamp: now });
+    });
+    adaptiveActiveAlerts.clear();
+    adaptiveCooldowns.clear();
   },
 
   /**
@@ -332,8 +473,36 @@ const RuleEngine = {
       EventBus.off(EVENTS.SENSOR_UPDATE, _sensorHandler);
       _sensorHandler = null;
     }
+    if (_clearingHandler) {
+      EventBus.off(EVENTS.DATA_SOURCE_CLEARING, _clearingHandler);
+      _clearingHandler = null;
+    }
+    if (_changedHandler) {
+      EventBus.off(EVENTS.DATA_SOURCE_CHANGED, _changedHandler);
+      _changedHandler = null;
+    }
+    if (_baselineInterval !== null) {
+      clearInterval(_baselineInterval);
+      _baselineInterval = null;
+    }
     activeAlerts.clear();
+    adaptiveActiveAlerts.clear();
+    adaptiveCooldowns.clear();
   },
 };
+
+// ─── Baseline interval helper ─────────────────────────────────────────────────
+
+function _startBaselineInterval() {
+  return setInterval(() => {
+    const baselines = {};
+    for (const rule of ADAPTIVE_RULES) {
+      const sensorId     = rule.sensorIds[0];
+      const b            = computeBaseline(sensorId, SensorState.history, 120);
+      baselines[sensorId] = b ? { mean: b.mean, std: b.std, n: b.n } : null;
+    }
+    EventBus.emit(EVENTS.BASELINE_UPDATED, { baselines });
+  }, 5000);
+}
 
 export default RuleEngine;

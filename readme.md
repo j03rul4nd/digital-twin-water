@@ -46,6 +46,8 @@ Open [http://localhost:5173](http://localhost:5173) — choose your data source 
 | **Incident simulator** | Trigger fault scenarios from the UI. 5 scenarios, 30s duration, auto-reset. |
 | **Process KPIs** | Throughput, chlorination efficiency, time-in-warning, backwash count, and more. Financial KPIs: OEE, cost/m³, session cost, risk score. |
 | **Financial analytics** | Per-sensor OEE, cost/unit, degradation countdown, volatility (CV), Sharpe ratio, economic impact. Configurable from sensor detail modal, KPI panel, or settings. Persisted in localStorage. |
+| **Replay mode** | Scrub through the last 6 minutes of sensor history with a timeline bar. Pause live data, step frame-by-frame, or drag to any point. All panels (telemetry, alerts, charts) render from the historical snapshot. |
+| **Adaptive anomaly detection** | Z-score baseline engine learns each sensor's rolling 2-minute mean and std. Fires statistical anomaly alerts when a reading exceeds 2–2.5σ from baseline. 30-second cooldown per sensor prevents alert spam. |
 | **Claude Desktop** | MCP server lets Claude query sensor data, alerts, KPIs and trends in real time. |
 | **UI-configurable** | Broker, credentials, webhooks, payload mapping — all from the dashboard, no code. |
 | **Startup flow** | Explicit data source selection on load. Simulation never starts without user action. |
@@ -241,6 +243,7 @@ main.js → SensorState.update()     ← single source of truth + history buffer
         → EventBus.emit(SENSOR_UPDATE)
   │
   ├──▶ RuleEngine      threshold rules + trend rules (getTrend)
+  │      │               + adaptive Z-score rules (BaselineEngine)
   │      └──▶ AlertPanel        active list + history section
   │      └──▶ AlertSystem       emissive glow on 3D meshes
   │      └──▶ WebhookManager    POST to configured URLs
@@ -250,6 +253,10 @@ main.js → SensorState.update()     ← single source of truth + history buffer
   │      │               + financial KPIs: sessionOEE · avgCostPerM3 · sessionCostTotal · financialRiskScore
   │      └──▶ KPIPanel          modal with bar chart + stats grid + Financial section (4 cards)
   │      └──▶ MCPBridge         push state to mcp-bridge-server every 1s
+  │
+  ├──▶ ReplayController ← ◀ Replay button in topbar
+  │      ReplayBar      (timeline scrubber, step buttons, exit)
+  │      Consumers: TelemetryPanel, SceneUpdater, AlertPanel, SensorDetailModal
   │
   ├──▶ SceneUpdater    ColorMapper → mesh.material.color per tick
   ├──▶ TelemetryPanel  rows → click → SensorDetailModal (live SVG chart, stale detection, financial analytics)
@@ -298,6 +305,10 @@ Claude Desktop ← mcp-server.js ← mcp-state.json ← mcp-bridge-server ← MC
 **V1.4 ✅** DataSourceManager · StartupModal · SensorDetailModal v2 · MultiChartPanel (multi-sensor analysis, event markers, minimap, before/after comparison, PNG export) · AnalyticsEngine · ChartStore · EventMarkers
 
 **V1.5 ✅** Financial analytics module · FinancialAnalytics.js (6 pure functions: OEE, cost/unit, degradation, volatility, Sharpe, economic impact) · FinancialConfig.js (localStorage-persisted singleton) · renderFinancialConfigUI.js (shared config renderer) · SensorDetailModal ⚙ inline config panel · KPIEngine 4 financial KPIs · KPIPanel Financial section · ConfigModal financial section · MultiChartPanel 3 economic layers (€ Cost, ≈ Corr, ⚡ Impact)
+
+**V1.6 ✅** Replay mode · ReplayController (REPLAY_ENTERED / REPLAY_SCRUBBED / REPLAY_EXITED events) · ReplayBar timeline scrubber UI · all panels render from historical snapshots during replay · EVENT_CONTRACT_VERSION '3'
+
+**V1.7 ✅** Adaptive anomaly detection · BaselineEngine.js (pure stateless Z-score functions: computeBaseline, isAnomaly, formatAnomalyMessage) · 5 ADAPTIVE_RULES wired into RuleEngine · BASELINE_UPDATED event every 5s · 30s cooldown per sensor · EVENT_CONTRACT_VERSION '4'
 
 **V2.0 — Planned**
 [`feature/ai-advisor`](../../tree/feature/ai-advisor): TinyLlama via WebLLM, natural language process diagnostics (~700MB, opt-in)

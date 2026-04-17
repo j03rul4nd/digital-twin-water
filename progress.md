@@ -20,6 +20,7 @@
 | **V1.4** | DataSourceManager, StartupModal, SensorDetailModal v2, MultiChartPanel | ✅ Complete |
 | **V1.5** | Financial analytics module, KPI financial KPIs, economic chart layers | ✅ Complete |
 | **V1.6** | Replay mode — session history scrubber | ✅ Complete |
+| **V1.7** | Adaptive anomaly detection (Z-score vs. rolling baseline) | ✅ Complete |
 | **V2.0** | AI Advisor (WebLLM + TinyLlama) | ⬜ Pending |
 
 ---
@@ -45,7 +46,7 @@ digital-twin-water/
 └── src/
     ├── main.js
     ├── core/
-    │   ├── events.js                     EVENT_CONTRACT_VERSION = '3'
+    │   ├── events.js                     EVENT_CONTRACT_VERSION = '4'
     │   ├── EventBus.js
     │   ├── SceneManager.js
     │   ├── ModelFactory.js
@@ -57,7 +58,8 @@ digital-twin-water/
     │   ├── SensorSceneMap.js
     │   ├── sensor.worker.js              + incident scenarios
     │   ├── SensorWorker.js               + scenario()
-    │   ├── RuleEngine.js                 + 4 trend rules
+    │   ├── RuleEngine.js                 + 4 trend rules + adaptive anomaly layer ★ V1.7
+    │   ├── BaselineEngine.js             pure Z-score baseline functions ★ V1.7
     │   ├── MQTTAdapter.js                + PayloadMapper + SparkplugParser
     │   └── KPIEngine.js
     ├── scene/
@@ -455,6 +457,51 @@ Untouched per architectural constraint — these modules remain source-of-truth 
 
 ---
 
+## V1.7 — Adaptive Anomaly Detection ✅ Complete
+
+Second detection layer in RuleEngine that fires alerts when a sensor deviates statistically from its own recent 2-minute baseline — complementary to the existing fixed-threshold rules.
+
+### `src/sensors/BaselineEngine.js` (new)
+
+Pure stateless module — no EventBus, no imports from `ui/` or `core/`. Three named exports:
+
+| Function | Description |
+|---|---|
+| `computeBaseline(sensorId, history, windowSeconds)` | Rolling mean + σ over the last `windowSeconds` of `SensorState.history`. Returns `null` if < 20 valid samples (silent for the first ~10 s). |
+| `isAnomaly(value, baseline, sigmaThreshold)` | Z-score test. Returns `{ anomaly, zScore, direction: 'high'|'low'|null }`. Safe when `baseline` is `null` or `std === 0`. |
+| `formatAnomalyMessage(sensorId, result, baseline, unit)` | Human-readable string. Example: `"Filter #1 DP +2.8σ above recent baseline (μ=98.3 mbar)"`. |
+
+### `src/sensors/RuleEngine.js` (extended)
+
+Parallel adaptive layer alongside the existing `RULES` loop:
+
+- `ADAPTIVE_RULES_ENABLED` — set to `false` to disable with zero overhead and zero side effects.
+- `ADAPTIVE_RULES` — 5 sensors: `inlet_flow` (2.5σ), `filter_1_dp` (2.0σ), `filter_2_dp` (2.0σ), `filtered_turbidity` (2.0σ), `residual_chlorine` (2.5σ). All with 30 s cooldown and minimum 20 baseline samples.
+- `adaptiveActiveAlerts` + `adaptiveCooldowns` Maps — owned exclusively by RuleEngine, just like `activeAlerts`.
+- Cooldown prevents re-triggering within 30 s of the last activation for the same rule.
+- `getActiveAlerts()` returns threshold + adaptive alerts combined — AlertPanel and AlertSystem receive both transparently.
+- `clearAlerts()` emits `active: false` for adaptive alerts before clearing (matching threshold behavior).
+- `DATA_SOURCE_CLEARING` listener clears Maps + cancels the `BASELINE_UPDATED` interval.
+- `DATA_SOURCE_CHANGED` listener restarts the interval when a new source becomes active.
+- `destroy()` unsubscribes all three handlers and cancels the interval.
+
+### `src/core/events.js` (bumped to v4)
+
+- `EVENT_CONTRACT_VERSION` → `'4'`.
+- `BASELINE_UPDATED: 'baseline:updated'` — emitted every 5 s when `ADAPTIVE_RULES_ENABLED` is true. Payload: `{ baselines: { [sensorId]: { mean, std, n } | null } }`. No UI consumer yet; reserved for future TelemetryPanel baseline indicators.
+
+### Edge cases
+
+| Case | Behavior |
+|---|---|
+| < 20 baseline samples (first ~10 s) | `computeBaseline` → `null` → `isAnomaly` → `false` → no alerts |
+| Same sensor: threshold + adaptive alert | Both fire independently (different `id`s), both appear in AlertPanel |
+| `ADAPTIVE_RULES_ENABLED = false` | Adaptive loop skipped entirely, `BASELINE_UPDATED` not emitted |
+| `NaN` / `undefined` reading | Guarded before `computeBaseline` call |
+| Cooldown after `DATA_SOURCE_CLEARING` | Maps cleared → first anomaly on new source fires immediately |
+
+---
+
 ## V2.0 — Pending
 
 Separate branch `feature/ai-advisor`:
@@ -468,7 +515,7 @@ Do not merge into `main` until sufficient traction in the repo.
 ## Current events catalog (`src/core/events.js`)
 
 ```
-EVENT_CONTRACT_VERSION = '3'
+EVENT_CONTRACT_VERSION = '4'
 
 SENSOR_UPDATE        — complete snapshot every 500ms
 RULE_TRIGGERED       — alert active/resolved (active: true/false)
@@ -487,6 +534,8 @@ OPEN_MULTI_CHART     — open MultiChartPanel (payload: { sensorIds? })
 REPLAY_ENTERED       — replay mode activated (payload: { index, snapshot })
 REPLAY_EXITED        — replay mode deactivated (no payload)
 REPLAY_SCRUBBED      — cursor moved (payload: { index, snapshot })
+BASELINE_UPDATED     — rolling baselines for adaptive sensors (every 5s) ★ V1.7
+                       payload: { baselines: { [sensorId]: { mean, std, n } | null } }
 ```
 
 ---
