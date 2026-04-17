@@ -297,6 +297,14 @@ const KPIEngine = {
   },
 
   /**
+   * Returns the last calculated KPIs synchronously.
+   * Alias for getCurrent() — used by ReportEngine snapshot.
+   */
+  getLastKPIs() {
+    return this.getCurrent();
+  },
+
+  /**
    * Resetea todos los contadores de sesión.
    * Llamado automáticamente al recibir DATA_SOURCE_CLEARING.
    * Los KPIs del próximo cálculo reflejarán solo la nueva sesión.

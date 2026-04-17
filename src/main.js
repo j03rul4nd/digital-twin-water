@@ -64,6 +64,10 @@ import EventMarkers    from './charts/EventMarkers.js';
 import ReplayController from './core/ReplayController.js';
 import ReplayBar       from './ui/ReplayBar.js';
 
+import ReportConfig    from './reports/ReportConfig.js';
+import ReportPanel     from './ui/ReportPanel.js';
+import ReportEngine    from './reports/ReportEngine.js';
+
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +119,12 @@ async function init() {
   // se suscribe al controller y también escucha los eventos REPLAY_*.
   ReplayController.init();
   ReplayBar.init();
+
+  // ── Report system ────────────────────────────────────────────────────────
+  ReportConfig.load();
+  ReportPanel.init();
+  // Provide AlertPanel reference so ReportEngine can pull resolved alerts
+  ReportEngine._alertPanel = AlertPanel;
 
   // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe.
   // Al arrancar no hay alertas (SensorState.reset() fue llamado en paso 3),

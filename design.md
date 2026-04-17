@@ -3,7 +3,7 @@
 
 > Documento vivo. Leer junto a `PRODUCT.md`.
 > Consumir en Fase 2 (escena 3D), Fase 3 (UI), y Fase 4 (adapter + polish).
-> Última actualización: pre-implementación.
+> Última actualización: V1.6 — PDF Report Engine.
 
 ---
 
@@ -244,7 +244,8 @@ Los paneles no tienen `backdrop-filter: blur()` por defecto — el blur añade c
   7. **`flex: 1`** — espacio vacío
   8. **Alert chip:** `opacity: 0` cuando vacío. Fondo `--red-bg`, borde `1px solid rgba(239,68,68,0.3)`, texto `--red`, `font-size: 10px; padding: 3px 8px; border-radius: 4px; transition: opacity 0.15s`
   9. **Separador**
-  10. **Botones ghost:** `Export CSV` y `Docs ↗` — `font-size: 10px; color: --text1; background: transparent; padding: 4px 8px; border: 1px solid var(--line2); border-radius: 4px`
+  10. **Botones ghost:** `Export CSV`, `⏪ Replay`, `⊞ Compare`, `📊 KPIs`, `⚡ Webhooks`, `⇄ Payload`, `Docs ↗`, `📄 Report` — `font-size: 10px; color: --text1; background: transparent; padding: 4px 8px; border: 1px solid var(--line2); border-radius: 4px`
+  - **`📄 Report`** — disabled until `SensorState.isReady()`. Hovering shows blue accent. Opens `ReportPanel` modal.
 
 **Comportamiento del alert chip:**
 - `activeAlerts.size === 0`: `opacity: 0; pointer-events: none`
@@ -472,6 +473,52 @@ mesh.material.emissiveIntensity = 0.0;
 
 **Por qué `0.35` y no más.** Con valores mayores (0.5+) el mesh pierde su color de proceso y se convierte en un blob saturado. Con 0.35 el glow es visible en la escena oscura pero el material mantiene su identidad visual.
 
+### `ReportPanel.js`
+
+**Responsabilidad:** modal de generación de informes PDF. Accesible desde `📄 Report` en el topbar.
+
+**Tres tabs:**
+1. **Template** — tres tarjetas (`SHIFT_HANDOVER`, `INCIDENT_REPORT`, `EXECUTIVE_SUMMARY`). Selección persiste en `ReportConfig` (localStorage: `wtp_report_config`). Al seleccionar una plantilla se aplican sus `sectionDefaults`.
+2. **Content** — delegado a `renderReportConfigUI()`: toggles de secciones, nº de gráficas, ventana temporal, formato de página.
+3. **Branding** — nombre de empresa, planta, autor, colores primario/acento (color picker + hex input sincronizados), logo (drag & drop o click, PNG/JPG, max 2 MB, comprimido a max 400×400 antes de localStorage).
+
+**Live preview canvas (480×64 px):** renderiza la cabecera del PDF usando el canvas 2D API. Se actualiza en tiempo real cuando el usuario cambia colores o sube logo. No renderiza gráficas — solo muestra paleta de colores, logo, nombre de empresa y badge de acento.
+
+**Barra de progreso:** aparece durante la generación con etiquetas descriptivas (`Capturing sensor charts…` / `Building layout…` / `Finalizing PDF…` / `Ready!`). Botón deshabilitado mientras genera.
+
+**Generación:** llama a `ReportEngine.generateReport()` → `Promise<Blob>`. Descarga automática via URL temporal. Nombre de archivo: `wtp-report-{template}-{timestamp}.pdf`.
+
+**Destroy:** llama `ReportConfig.unsubscribe`, limpia el `setInterval` de estado del botón, elimina el overlay del DOM.
+
+---
+
+### `ReportEngine.js`
+
+**Responsabilidad:** orquestador stateless de PDF. No tiene estado propio excepto el flag `_isGenerating`.
+
+**API pública:**
+```js
+ReportEngine.generateReport(opts)        // → Promise<Blob>
+ReportEngine.getReportDataSnapshot(opts) // → JSON puro (para MCP)
+ReportEngine.registerSection(id, fn)     // extensibilidad
+ReportEngine.downloadBlob(blob, template)
+```
+
+**Snapshot inmutable:** al inicio de `generateReport()` se toma un snapshot de `SensorState`, `RuleEngine`, `KPIEngine`, `AlertPanel` y `FinancialConfig`. Los valores no cambian durante el render aunque lleguen nuevos ticks.
+
+**Plantillas:**
+- `SHIFT_HANDOVER` — operadorStrip + KPI row + sensor table + resolved/active alerts + firma
+- `INCIDENT_REPORT` — incident bar + root cause + chart grid + alert timeline + financial card
+- `EXECUTIVE_SUMMARY` — executive KPI row + chart grid + top alerts + financial card + expanded charts
+
+**Chart capture:** intenta encontrar SVGs en el DOM (`[data-sensor-id] svg`). Si no los encuentra, llama a `buildFallbackChartPng()` que construye un SVG de línea minimal desde `SensorState.history`. Resolución: `scale: 2` (retina).
+
+**Footers:** tras renderizar todas las páginas, itera `doc.internal.getNumberOfPages()` y añade el footer a cada página con número `N of M`.
+
+**Integración MCP:** `getReportDataSnapshot({ onlyData: true })` devuelve JSON puro sin generar PDF. El futuro tool MCP `generate_plant_report` lo usará directamente.
+
+---
+
 ### `MiniMap.js`
 
 ```js
@@ -647,3 +694,17 @@ body {
 ---
 
 *Actualizar este documento si cambia el layout, se añade un componente, o se modifica un estado visual. Los cambios de arquitectura técnica van en `PRODUCT.md`.*
+
+---
+
+## Changelog
+
+| Versión | Cambios |
+|---|---|
+| **V1.6** | PDF Report Engine. `ReportPanel` (3 tabs), `ReportEngine` (orquestador stateless), `ReportSections` (funciones puras de rendering jsPDF), `ReportChartCapture` (html2canvas + SVG fallback), `ReportConfig` (observable, localStorage), `ReportBranding` (logo upload, compresión canvas), `ReportTemplates` (3 plantillas). Botón `📄 Report` en topbar. `EVENT_CONTRACT_VERSION` → `'5'`. |
+| **V1.5** | Financial analytics shared modules (`FinancialAnalytics.js`, `FinancialConfig.js`, `renderFinancialConfigUI.js`). KPIPanel con métricas financieras. MultiChartPanel con análisis estadístico. |
+| **V1.4** | Replay mode (`ReplayController`, `ReplayBar`). `EventMarkers` para correlación de alertas con gráficas históricas. |
+| **V1.3** | Adaptive anomaly detection (`BaselineEngine`). `BASELINE_UPDATED` event. 5 reglas adaptativas en `RuleEngine`. |
+| **V1.2** | Webhooks, Payload Mapper, Data Exporter. `MCPBridge` para integración con Claude Desktop. |
+| **V1.1** | AlertPanel con historial de alertas resueltas. MiniMap con Leaflet. Incident scenarios. |
+| **V1.0** | Three.js scene, SensorState, RuleEngine, KPIEngine, TelemetryPanel, AlertPanel, Toolbar, MQTT. |

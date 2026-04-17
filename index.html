@@ -589,6 +589,15 @@
     }
     .topbar-btn:disabled:hover { background: transparent; color: var(--text1); }
 
+    /* Botón Report — acento azul marino */
+    .topbar-btn--report {
+      color: var(--text1);
+    }
+    .topbar-btn--report:hover:not(:disabled) {
+      color: var(--blue, #3b82f6);
+      border-color: rgba(59,130,246,0.35);
+    }
+
     /* Botón Replay — acento rojo cuando está en modo replay (Live) */
     #btn-replay.is-replaying {
       color: var(--red);
@@ -2291,6 +2300,8 @@
     <button class="topbar-btn" id="btn-payload-mapper">⇄ Payload</button>
     <div style="width: 6px;"></div>
     <button class="topbar-btn" id="btn-docs">Docs ↗</button>
+    <div style="width: 6px;"></div>
+    <button class="topbar-btn topbar-btn--report" id="btn-report" title="Generate PDF report" disabled>📄 Report</button>
   </div>
 
   <!-- ── Viewport 3D ─────────────────────────────────────────────────────── -->

@@ -14,6 +14,7 @@ import { EVENTS }         from '../core/events.js';
 import DataSourceManager  from '../core/DataSourceManager.js';
 import ReplayController   from '../core/ReplayController.js';
 import SensorState        from '../sensors/SensorState.js';
+import ReportPanel        from './ReportPanel.js';
 
 // ─── Estados de fuente de datos → config visual ───────────────────────────────
 // Separados por origen para máxima claridad de modo activo en la UI.
@@ -134,6 +135,22 @@ const Toolbar = {
     // Habilitado solo cuando hay ≥10 frames en SensorState.history.
     // Durante replay, se convierte en "● Live" y al hacer clic sale.
     this._wireReplayButton();
+
+    // ── Botón Report ──────────────────────────────────────────────────────
+    const reportBtn = document.getElementById('btn-report');
+    if (reportBtn) {
+      reportBtn.addEventListener('click', () => ReportPanel.open());
+
+      const onSensorForReport = () => {
+        if (SensorState.isReady()) reportBtn.disabled = false;
+      };
+      EventBus.on(EVENTS.SENSOR_UPDATE, onSensorForReport);
+      this._handlers.push([EVENTS.SENSOR_UPDATE, onSensorForReport]);
+
+      const onClearingForReport = () => { reportBtn.disabled = true; };
+      EventBus.on(EVENTS.DATA_SOURCE_CLEARING, onClearingForReport);
+      this._handlers.push([EVENTS.DATA_SOURCE_CLEARING, onClearingForReport]);
+    }
 
     // ── Botón Docs ────────────────────────────────────────────────────────
     const docsBtn = document.getElementById('btn-docs');

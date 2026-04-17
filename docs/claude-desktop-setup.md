@@ -1,6 +1,6 @@
 # Claude Desktop Integration
 
-Connect Claude Desktop to your WTP Digital Twin so Claude can query sensor data, analyze alerts, and inspect process KPIs in real time.
+Connect Claude Desktop to your WTP Digital Twin so Claude can query sensor data, analyze alerts, inspect process KPIs, and generate PDF reports in real time.
 
 ---
 
@@ -79,6 +79,9 @@ Once connected, Claude can use these tools:
 | `get_kpis` | Process KPIs: throughput, chlorination efficiency, etc. |
 | `get_sensor_trend` | Trend analysis of a sensor over a time window |
 | `get_alert_history` | Recent resolved alerts with duration |
+| `generate_plant_report` | *(roadmap)* Generate a PDF report snapshot — returns the full data payload that `ReportEngine.getReportDataSnapshot()` produces, ready to pipe into jsPDF server-side |
+
+> **Note on `generate_plant_report`:** The browser-side PDF engine (`ReportEngine.generateReport()`) already supports `onlyData: true` to return the plain JSON snapshot without generating a PDF. The MCP tool will call this endpoint and return the structured data. Full PDF binary generation via MCP requires a Node.js jsPDF invocation server-side — this is planned for V2.
 
 ---
 
@@ -109,6 +112,15 @@ Summarize what happened with the plant in the last 3 minutes.
 Any anomalies worth investigating?
 ```
 
+```
+Give me a shift handover summary I could read to the incoming operator.
+```
+
+```
+There was an incident with the chlorine levels 10 minutes ago.
+What sensors were involved and what was the timeline?
+```
+
 ---
 
 ## Troubleshooting
@@ -126,3 +138,21 @@ Any anomalies worth investigating?
 **Bridge server CORS error**
 - The bridge only accepts connections from `localhost:5173`
 - If you changed Vite's port, update the CORS origin in `mcp-bridge-server.js`
+
+---
+
+## Event contract compatibility
+
+The dashboard exports `EVENT_CONTRACT_VERSION` from `src/core/events.js`. If you have a fork or custom MCP server that checks this value, note the version history:
+
+| Version | What changed |
+|---|---|
+| `'4'` | Replay mode events, baseline anomaly detection |
+| `'5'` | Report generation events (`report:generation:*`) added |
+
+Forks checking the contract version should update their guard from `'4'` to `'5'`:
+
+```js
+import { EVENT_CONTRACT_VERSION } from './src/core/events.js';
+if (EVENT_CONTRACT_VERSION !== '5') console.warn('Unexpected contract version');
+```

@@ -8,7 +8,7 @@
  * Los forks que dependan del payload pueden hacer un check explícito.
  */
 
-export const EVENT_CONTRACT_VERSION = '4';
+export const EVENT_CONTRACT_VERSION = '5';
 
 export const EVENTS = {
   // ─── Datos de sensores ────────────────────────────────────────────────────
@@ -96,4 +96,14 @@ export const EVENTS = {
   // purpose: future UI consumers (TelemetryPanel baseline indicators)
   // payload: { baselines: { [sensorId]: { mean: number, std: number, n: number } | null } }
   BASELINE_UPDATED: 'baseline:updated',
+
+  // ─── Report generation ────────────────────────────────────────────────────
+  // payload: { template: string, timestamp: number }
+  REPORT_GENERATION_STARTED:  'report:generation:started',
+  // payload: { pct: number, label: string }
+  REPORT_GENERATION_PROGRESS: 'report:generation:progress',
+  // payload: { template: string, sizeBytes: number, duration: number }
+  REPORT_GENERATION_COMPLETE: 'report:generation:complete',
+  // payload: { error: string, template: string }
+  REPORT_GENERATION_ERROR:    'report:generation:error',
 };

@@ -27,3 +27,6 @@ dist-tmp/
 # OS
 .DS_Store
 Thumbs.db
+.claude/
+.claude/worktrees/interesting-bhabha-44e327
+.claude/worktrees/interesting-bhabha-44e327

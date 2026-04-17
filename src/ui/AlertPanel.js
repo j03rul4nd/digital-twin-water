@@ -427,6 +427,18 @@ const AlertPanel = {
     return b.timestamp - a.timestamp;
   },
 
+  /**
+   * Returns a copy of the resolved alerts history.
+   * Used by ReportEngine to include resolved alerts in generated reports.
+   * Each item has: id, severity, sensorIds, message, timestamp, activatedAt, duration.
+   */
+  getResolvedAlerts() {
+    return this._history.map(a => ({
+      ...a,
+      resolvedAt: a.activatedAt != null ? a.activatedAt + a.duration * 1000 : a.timestamp,
+    }));
+  },
+
   destroy() {
     if (this._handler) {
       EventBus.off(EVENTS.RULE_TRIGGERED, this._handler);

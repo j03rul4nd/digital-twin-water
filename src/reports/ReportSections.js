@@ -123,9 +123,31 @@ function fmtTime(ts) {
 }
 
 function trendArrow(direction) {
-  if (direction === 'rising')  return '↑';
-  if (direction === 'falling') return '↓';
-  return '→';
+  if (direction === 'rising')  return '[+]';
+  if (direction === 'falling') return '[-]';
+  return '[~]';
+}
+
+function _sanitize(text) {
+  if (text === null || text === undefined) return '\u2014';
+  return String(text)
+    .replace(/\u03c3/g, 'SD')
+    .replace(/\u03bc/g, 'avg')
+    .replace(/\u2265/g, '>=')
+    .replace(/\u2264/g, '<=')
+    .replace(/\u00b0/g, 'deg')
+    .replace(/[^\x00-\xFF]/g, '?');
+}
+
+function _truncate(doc, text, maxMm) {
+  if (!text) return '\u2014';
+  const safe = _sanitize(text);
+  if (doc.getTextWidth(safe) <= maxMm) return safe;
+  let s = safe;
+  while (s.length > 1 && doc.getTextWidth(s + '...') > maxMm) {
+    s = s.slice(0, -1);
+  }
+  return s + '...';
 }
 
 function getSensorStatus(sensorCfg, value) {
@@ -411,8 +433,8 @@ export function renderActiveAlertsTable(doc, data, config, y) {
     const sevColor = alert.severity === 'danger' ? CLR.danger : CLR.warning;
 
     setFont(doc, 'normal', 8, CLR.bodyText);
-    doc.text((alert.sensorIds || []).join(', '), colX[0], y + 4.2);
-    doc.text(alert.message || alert.id || '—', colX[1], y + 4.2);
+    doc.text(_truncate(doc, (alert.sensorIds || []).join(', '), 43), colX[0], y + 4.2);
+    doc.text(_truncate(doc, alert.message || alert.id, 47), colX[1], y + 4.2);
     doc.text(elapsed, colX[2], y + 4.2);
 
     // Severity badge
@@ -464,7 +486,7 @@ export function renderResolvedAlertsTable(doc, data, config, y) {
 
     setFont(doc, 'normal', 7.5, CLR.bodyText);
     doc.text((alert.sensorIds || []).join(', '), colX[0], y + 4.2);
-    doc.text((alert.message || alert.id || '—').substring(0, 28), colX[1], y + 4.2);
+    doc.text(_truncate(doc, alert.message || alert.id, 37), colX[1], y + 4.2);
     setFont(doc, 'normal', 7, CLR.secondary);
     doc.text(fmtTime(alert.timestamp),  colX[2], y + 4.2);
     doc.text(fmtTime(alert.resolvedAt), colX[3], y + 4.2);
@@ -595,8 +617,8 @@ export function renderAlertTimeline(doc, data, config, y) {
 
     // Event description
     setFont(doc, 'normal', 8, CLR.bodyText);
-    const msg = alert.message || alert.id || '—';
-    doc.text(msg.substring(0, 60), timelineX + 40, y + 4);
+    const msg = _truncate(doc, alert.message || alert.id, 90);
+    doc.text(msg, timelineX + 40, y + 4);
 
     // Rule detail
     setFont(doc, 'italic', 7, CLR.muted);
