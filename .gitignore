@@ -12,7 +12,7 @@ dist/
 # pero los cambios en runtime se ignoran
 # Si quieres ignorarlo completamente, descomenta la siguiente línea:
 # mcp-state.json
-
+dist-tmp/
 # Environment
 .env
 .env.local

@@ -19,6 +19,7 @@
 | **V1.3** | Sparkplug B, KPIs, MCP server | ✅ Complete |
 | **V1.4** | DataSourceManager, StartupModal, SensorDetailModal v2, MultiChartPanel | ✅ Complete |
 | **V1.5** | Financial analytics module, KPI financial KPIs, economic chart layers | ✅ Complete |
+| **V1.6** | Replay mode — session history scrubber | ✅ Complete |
 | **V2.0** | AI Advisor (WebLLM + TinyLlama) | ⬜ Pending |
 
 ---
@@ -44,7 +45,7 @@ digital-twin-water/
 └── src/
     ├── main.js
     ├── core/
-    │   ├── events.js                     EVENT_CONTRACT_VERSION = '2'
+    │   ├── events.js                     EVENT_CONTRACT_VERSION = '3'
     │   ├── EventBus.js
     │   ├── SceneManager.js
     │   ├── ModelFactory.js
@@ -405,6 +406,55 @@ ChartStore flags (`showEconomicCost`, `showEconomicCorrelation`, `showEconomicIm
 
 ---
 
+## V1.6 — Replay mode — session history scrubber
+
+Users can pause the live data feed and scrub through the last three minutes of telemetry to replay what happened. The whole app (3D scene, telemetry sidebar, alert panel, sensor detail modal) renders from the historical snapshot instead of the live stream while replay is active.
+
+### Architecture
+
+- **`src/core/ReplayController.js`** — single source of truth for replay state. Exposes `enter()`, `exit()`, `scrubTo(index)`, `isActive()`, `getSnapshot()`, and `subscribe(fn)` (observable pattern, same as ChartStore / FinancialConfig). Emits `REPLAY_ENTERED`, `REPLAY_SCRUBBED`, `REPLAY_EXITED` on EventBus. Listens to `DATA_SOURCE_CLEARING` for auto-exit. Snapshot shape: `{ timestamp, readings, index, activeAlertIds }` with `activeAlertIds` derived from `EventMarkers._events` (alert ids seen up to the snapshot timestamp).
+
+- **`src/ui/ReplayBar.js`** — fixed-bottom scrubber (`z-index: 150`). Range input spans full history; SVG overlay draws amber/red flags at the timestamps of alert markers; right side shows absolute timestamp + `Xm Ys ago` delta; `▶ Play` runs at 4× (125ms/frame) and auto-pauses at end; `✕ Back to Live` calls `ReplayController.exit()`. Visibility toggled via `opacity + pointer-events` (not `display: none`) so the entrance transition works. `translateY(100% → 0)` over 0.2s + `opacity 0.15s`. `REPLAY` pill in top-right of viewport mirrors the design token style of the topbar alert chip (`--red-bg`, `border-radius: 4px`, `font-size: 10px`, mono, uppercase, letter-spacing 0.08em).
+
+- **Keyboard shortcuts** (blocked when any input/textarea/select has focus or a modal is open):
+  - `R` — toggle replay
+  - `← / →` — step ±1 frame (stops playback first)
+  - `Space` — play/pause
+  - `Escape` — exit
+
+### Module integration
+
+| Module | Behavior |
+|---|---|
+| `TelemetryPanel.js` | Skips live updates during replay. Listens to `REPLAY_ENTERED/SCRUBBED` → re-renders from snapshot. On `REPLAY_EXITED` repaints from `SensorState.readings`. |
+| `SceneUpdater.js` | Skips live `SENSOR_UPDATE` during replay. On `REPLAY_ENTERED/SCRUBBED`: applies ColorMapper with snapshot readings + reapplies emissive glow for every id in `activeAlertIds` (metadata fetched from `EventMarkers`). On `REPLAY_EXITED`: clears all emissive, repaints from live readings. |
+| `AlertPanel.js` | `_handleAlert()` is a no-op during replay. Subscribes to `REPLAY_ENTERED/SCRUBBED` and rebuilds the Active section from `snapshot.activeAlertIds` (hydrating each row via `EventMarkers._events`). Counter reads `"N in replay"` in `--red`. On exit, rebuilds Active from `RuleEngine.getActiveAlerts()`. |
+| `SensorDetailModal.js` | When replay is active, `_render()` pulls the value from `ReplayController.getSnapshot().readings[id]` instead of `SensorState.get(id)`. A `⏪ Showing historical data` pill replaces the stale-feed banner while in replay. Subscribes to `REPLAY_ENTERED/SCRUBBED/EXITED` to repaint when the modal is open. |
+| `Toolbar.js` | New `#btn-replay` button (ghost style) disabled while `SensorState.history.length < 10`. Click → `ReplayController.enter()/exit()`. During replay shows `● Live` in `--red` (`.is-replaying` class). |
+| `main.js` | Step 4 initializes `ReplayController` (model) before `ReplayBar` (view). |
+| `events.js` | `EVENT_CONTRACT_VERSION` bumped to `'3'`. New events: `REPLAY_ENTERED`, `REPLAY_EXITED`, `REPLAY_SCRUBBED`. |
+
+### Explicit non-changes
+
+Untouched per architectural constraint — these modules remain source-of-truth of their own domain and don't need to know replay exists:
+
+- `src/sensors/SensorState.js`
+- `src/sensors/sensor.worker.js`
+- `src/core/DataSourceManager.js`
+- `src/sensors/RuleEngine.js`
+- `src/ui/MultiChartPanel.js`
+- `src/sensors/KPIEngine.js`
+- `src/ui/KPIPanel.js`
+
+### Edge cases
+
+- `enter()` with empty history → `console.warn` and no-op.
+- `scrubTo(index)` outside range → clamp to `[0, history.length - 1]`.
+- `DATA_SOURCE_CLEARING` while in replay → auto-exit before history is reset.
+- Alert metadata required to repaint during replay is read from `EventMarkers._events`. `EventMarkers` only captures `active: true` transitions, so `activeAlertIds` is a superset of the strictly-active set at that instant — an acceptable simplification since users see all alerts relevant to the surrounding window; rigorous active/resolved cycles remain visible in `AlertPanel`'s History section when live.
+
+---
+
 ## V2.0 — Pending
 
 Separate branch `feature/ai-advisor`:
@@ -418,7 +468,7 @@ Do not merge into `main` until sufficient traction in the repo.
 ## Current events catalog (`src/core/events.js`)
 
 ```
-EVENT_CONTRACT_VERSION = '2'
+EVENT_CONTRACT_VERSION = '3'
 
 SENSOR_UPDATE        — complete snapshot every 500ms
 RULE_TRIGGERED       — alert active/resolved (active: true/false)
@@ -434,6 +484,9 @@ KPIS_UPDATED         — KPIs recalculated (every 5s)
 DATA_SOURCE_CHANGED  — data source mode changed (payload: { mode })
 DATA_SOURCE_CLEARING — about to change source, clear all state
 OPEN_MULTI_CHART     — open MultiChartPanel (payload: { sensorIds? })
+REPLAY_ENTERED       — replay mode activated (payload: { index, snapshot })
+REPLAY_EXITED        — replay mode deactivated (no payload)
+REPLAY_SCRUBBED      — cursor moved (payload: { index, snapshot })
 ```
 
 ---

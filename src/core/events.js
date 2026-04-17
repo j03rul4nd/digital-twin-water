@@ -8,7 +8,7 @@
  * Los forks que dependan del payload pueden hacer un check explícito.
  */
 
-export const EVENT_CONTRACT_VERSION = '2';
+export const EVENT_CONTRACT_VERSION = '3';
 
 export const EVENTS = {
   // ─── Datos de sensores ────────────────────────────────────────────────────
@@ -75,4 +75,19 @@ export const EVENTS = {
   // Emitido por cualquier módulo para abrir el panel MultiChartPanel.
   // payload: { sensorIds?: string[] } — si se pasa, el panel pre-carga esos sensores
   OPEN_MULTI_CHART: 'chart:open-multi',
+
+  // ─── Replay Mode ──────────────────────────────────────────────────────────
+  // Emitidos por ReplayController para notificar entrada, movimiento y salida
+  // del modo replay. Los consumidores (TelemetryPanel, SceneUpdater, AlertPanel,
+  // SensorDetailModal, Toolbar) se suscriben para renderizar desde snapshot
+  // histórico en vez del estado live.
+  //
+  // payload: { index: number, snapshot: { timestamp, readings, index, activeAlertIds } }
+  REPLAY_ENTERED: 'replay:entered',
+
+  // payload: none
+  REPLAY_EXITED: 'replay:exited',
+
+  // payload: { index: number, snapshot: { timestamp, readings, index, activeAlertIds } }
+  REPLAY_SCRUBBED: 'replay:scrubbed',
 };

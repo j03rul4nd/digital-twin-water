@@ -61,6 +61,9 @@ import MobileTabBar    from './ui/MobileTabBar.js';
 import MultiChartPanel from './ui/MultiChartPanel.js';
 import EventMarkers    from './charts/EventMarkers.js';
 
+import ReplayController from './core/ReplayController.js';
+import ReplayBar       from './ui/ReplayBar.js';
+
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -106,6 +109,12 @@ async function init() {
   MCPBridge.init();
   MultiChartPanel.init();
   EventMarkers.init();
+
+  // Replay mode: controller primero (modelo) y luego la bar (vista).
+  // El controller escucha DATA_SOURCE_CLEARING para auto-exit; la bar
+  // se suscribe al controller y también escucha los eventos REPLAY_*.
+  ReplayController.init();
+  ReplayBar.init();
 
   // AlertPanel puede recuperar alertas activas ahora que RuleEngine existe.
   // Al arrancar no hay alertas (SensorState.reset() fue llamado en paso 3),

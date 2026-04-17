@@ -12,6 +12,8 @@
 import EventBus           from '../core/EventBus.js';
 import { EVENTS }         from '../core/events.js';
 import DataSourceManager  from '../core/DataSourceManager.js';
+import ReplayController   from '../core/ReplayController.js';
+import SensorState        from '../sensors/SensorState.js';
 
 // ─── Estados de fuente de datos → config visual ───────────────────────────────
 // Separados por origen para máxima claridad de modo activo en la UI.
@@ -128,6 +130,11 @@ const Toolbar = {
       });
     }
 
+    // ── Botón Replay ──────────────────────────────────────────────────────
+    // Habilitado solo cuando hay ≥10 frames en SensorState.history.
+    // Durante replay, se convierte en "● Live" y al hacer clic sale.
+    this._wireReplayButton();
+
     // ── Botón Docs ────────────────────────────────────────────────────────
     const docsBtn = document.getElementById('btn-docs');
     if (docsBtn) {
@@ -144,6 +151,76 @@ const Toolbar = {
       exportBtn.addEventListener('click', () => {
         EventBus.emit(EVENTS.EXPORT_STARTED, { format: 'csv' });
       });
+    }
+  },
+
+  /**
+   * Wires the Replay button: click toggles replay mode, and the button
+   * visually reflects the current replay state.
+   *
+   * Enable/disable polling: the button is disabled until SensorState.history
+   * has ≥10 frames. We check on every SENSOR_UPDATE (lightweight: single DOM read).
+   */
+  _wireReplayButton() {
+    const btn = document.getElementById('btn-replay');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+      if (ReplayController.isActive()) ReplayController.exit();
+      else                             ReplayController.enter();
+    });
+
+    // Suscribirse al controller para reflejar cambios de estado visualmente
+    const unsubscribe = ReplayController.subscribe(({ active }) => {
+      this._updateReplayButton(active);
+    });
+
+    // Mantener enable/disable al día con el histórico
+    const onSensorUpdate = () => this._refreshReplayEnabled();
+    const onClearingForBtn = () => {
+      this._refreshReplayEnabled();
+      this._updateReplayButton(false);
+    };
+    EventBus.on(EVENTS.SENSOR_UPDATE,       onSensorUpdate);
+    EventBus.on(EVENTS.DATA_SOURCE_CLEARING, onClearingForBtn);
+
+    this._handlers.push(
+      [EVENTS.SENSOR_UPDATE,        onSensorUpdate],
+      [EVENTS.DATA_SOURCE_CLEARING, onClearingForBtn],
+    );
+    this._replayUnsubscribe = unsubscribe;
+
+    // Estado inicial
+    this._refreshReplayEnabled();
+    this._updateReplayButton(false);
+  },
+
+  _refreshReplayEnabled() {
+    const btn = document.getElementById('btn-replay');
+    if (!btn) return;
+    const enough = SensorState.history.length >= 10;
+    // No deshabilitar mientras estás en replay (podría tener sentido salir
+    // aunque el histórico se vacíe — pero en la práctica DATA_SOURCE_CLEARING
+    // habrá activado auto-exit primero).
+    if (ReplayController.isActive()) { btn.disabled = false; return; }
+    btn.disabled = !enough;
+    btn.title = enough
+      ? 'Scrub through session history'
+      : 'Replay requires at least 10 history frames';
+  },
+
+  _updateReplayButton(active) {
+    const btn = document.getElementById('btn-replay');
+    if (!btn) return;
+    if (active) {
+      btn.textContent = '● Live';
+      btn.title       = 'Exit replay and return to live feed';
+      btn.classList.add('is-replaying');
+      btn.disabled    = false;
+    } else {
+      btn.textContent = '⏪ Replay';
+      btn.classList.remove('is-replaying');
+      this._refreshReplayEnabled();
     }
   },
 
@@ -251,6 +328,10 @@ const Toolbar = {
     });
     this._handlers    = [];
     this._alertCount  = 0;
+    if (this._replayUnsubscribe) {
+      this._replayUnsubscribe();
+      this._replayUnsubscribe = null;
+    }
   },
 };
 

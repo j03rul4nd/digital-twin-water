@@ -17,6 +17,7 @@ import { SENSORS }       from '../sensors/SensorConfig.js';
 import SensorState       from '../sensors/SensorState.js';
 import { getSensorState } from '../scene/ColorMapper.js';
 import SensorDetailModal from './SensorDetailModal.js';
+import ReplayController  from '../core/ReplayController.js';
 
 const STATE_COLOR = {
   normal:  'var(--green)',
@@ -26,7 +27,9 @@ const STATE_COLOR = {
 };
 
 const TelemetryPanel = {
-  _handler: null,
+  _handler:       null,
+  _replayHandler: null,
+  _exitHandler:   null,
   _isLive:  false,
 
   init() {
@@ -38,8 +41,28 @@ const TelemetryPanel = {
       body.appendChild(row);
     });
 
-    this._handler = (snapshot) => this._update(snapshot);
+    // Live updates (saltados durante replay)
+    this._handler = (snapshot) => {
+      if (ReplayController.isActive()) return;
+      this._update(snapshot);
+    };
     EventBus.on(EVENTS.SENSOR_UPDATE, this._handler);
+
+    // Durante replay, renderizar desde el snapshot histórico
+    this._replayHandler = ({ snapshot }) => {
+      if (!snapshot) return;
+      this._update({ timestamp: snapshot.timestamp, readings: snapshot.readings });
+    };
+    EventBus.on(EVENTS.REPLAY_ENTERED,  this._replayHandler);
+    EventBus.on(EVENTS.REPLAY_SCRUBBED, this._replayHandler);
+
+    // Al salir de replay, repintar con el último reading live.
+    this._exitHandler = () => {
+      if (SensorState.isReady()) {
+        this._update({ timestamp: SensorState.lastTimestamp, readings: SensorState.readings });
+      }
+    };
+    EventBus.on(EVENTS.REPLAY_EXITED, this._exitHandler);
   },
 
   _createRow(sensor) {
@@ -133,6 +156,15 @@ const TelemetryPanel = {
     if (this._handler) {
       EventBus.off(EVENTS.SENSOR_UPDATE, this._handler);
       this._handler = null;
+    }
+    if (this._replayHandler) {
+      EventBus.off(EVENTS.REPLAY_ENTERED,  this._replayHandler);
+      EventBus.off(EVENTS.REPLAY_SCRUBBED, this._replayHandler);
+      this._replayHandler = null;
+    }
+    if (this._exitHandler) {
+      EventBus.off(EVENTS.REPLAY_EXITED, this._exitHandler);
+      this._exitHandler = null;
     }
   },
 };

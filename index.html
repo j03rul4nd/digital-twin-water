@@ -583,6 +583,24 @@
       color: var(--text0);
     }
 
+    .topbar-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .topbar-btn:disabled:hover { background: transparent; color: var(--text1); }
+
+    /* Botón Replay — acento rojo cuando está en modo replay (Live) */
+    #btn-replay.is-replaying {
+      color: var(--red);
+      border-color: rgba(239,68,68,0.45);
+      background: var(--red-bg);
+    }
+    #btn-replay.is-replaying:hover {
+      color: var(--red);
+      border-color: var(--red);
+      background: rgba(239,68,68,0.14);
+    }
+
     /* Live badge en panel header */
     .live-badge {
       display: flex;
@@ -2135,6 +2153,8 @@
 
     <!-- Botones ghost -->
     <button class="topbar-btn" id="btn-export">Export CSV</button>
+    <div style="width: 6px;"></div>
+    <button class="topbar-btn" id="btn-replay" title="Scrub through session history (requires 10+ frames)" disabled>⏪ Replay</button>
     <div style="width: 6px;"></div>
     <button class="topbar-btn topbar-btn--compare" id="btn-compare" title="Open multi-sensor analysis panel">⊞ Compare</button>
     <div style="width: 6px;"></div>

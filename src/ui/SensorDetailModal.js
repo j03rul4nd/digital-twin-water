@@ -20,6 +20,7 @@ import SensorState       from '../sensors/SensorState.js';
 import { SENSORS }       from '../sensors/SensorConfig.js';
 import { getSensorState } from '../scene/ColorMapper.js';
 import FinancialConfig   from '../utils/FinancialConfig.js';
+import ReplayController  from '../core/ReplayController.js';
 import {
   computeOEE, computeCostPerUnit, computeDegradation,
   computeVolatility, computeSharpe, computeEconomicImpact,
@@ -66,6 +67,12 @@ const SensorDetailModal = {
     injectFinancialConfigStyles();
     FinancialConfig.load();
     FinancialConfig.subscribe(() => { if (this._activeSensor) this._render(); });
+
+    // Repintar al entrar/scrubbear/salir de replay si el modal está abierto.
+    const repaint = () => { if (this._activeSensor) this._render(); };
+    EventBus.on(EVENTS.REPLAY_ENTERED,  repaint);
+    EventBus.on(EVENTS.REPLAY_SCRUBBED, repaint);
+    EventBus.on(EVENTS.REPLAY_EXITED,   repaint);
   },
 
   open(sensorId) {
@@ -127,6 +134,10 @@ const SensorDetailModal = {
           <div id="sd-stale-banner" style="display:none">
             <span aria-hidden="true">⚠</span>
             <span id="sd-stale-msg">Feed paused</span>
+          </div>
+          <div id="sd-replay-banner" style="display:none">
+            <span aria-hidden="true">⏪</span>
+            <span>Showing historical data</span>
           </div>
         </div>
 
@@ -358,8 +369,13 @@ const SensorDetailModal = {
     if (!this._activeSensor) return;
     const { id, config } = this._activeSensor;
 
+    // ── Replay mode: tomar el valor del snapshot histórico ────────────────────
+    const replaySnap = ReplayController.isActive() ? ReplayController.getSnapshot() : null;
+    const replayBanner = document.getElementById('sd-replay-banner');
+    if (replayBanner) replayBanner.style.display = replaySnap ? 'flex' : 'none';
+
     // ── Current value + state badge ────────────────────────────────────────────
-    const current = SensorState.get(id);
+    const current = replaySnap ? replaySnap.readings[id] : SensorState.get(id);
     if (current !== undefined) {
       const state  = getSensorState(id, current);
       const colVar = { normal: 'var(--green)', warning: 'var(--amber)', danger: 'var(--red)' }[state] ?? 'var(--text1)';
@@ -375,7 +391,14 @@ const SensorDetailModal = {
     }
 
     // ── Stale feed detection ───────────────────────────────────────────────────
-    this._updateStaleBanner();
+    // Durante replay el feed "estancado" no aplica: ocultamos el banner.
+    if (replaySnap) {
+      document.getElementById('sd-stale-banner')?.style.setProperty('display', 'none');
+      document.getElementById('sd-stale-overlay')?.style.setProperty('display', 'none');
+      document.getElementById('sd-chart')?.classList.remove('sd-chart--stale');
+    } else {
+      this._updateStaleBanner();
+    }
 
     // ── History ────────────────────────────────────────────────────────────────
     const history = SensorState.getHistory(id);
@@ -795,6 +818,24 @@ const SensorDetailModal = {
         align-items: center !important;
         flex-wrap: wrap;
         gap: 8px !important;
+      }
+
+      /* Replay banner — pill rojo sobrio (no pulsa) */
+      #sd-replay-banner {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        color: var(--red);
+        background: var(--red-bg);
+        border: 1px solid rgba(239,68,68,0.3);
+        border-radius: 4px;
+        padding: 3px 9px;
+        white-space: nowrap;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
 
       /* Stale banner (pulsing amber pill) */

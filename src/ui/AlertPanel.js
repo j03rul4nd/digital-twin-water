@@ -16,6 +16,8 @@
 import EventBus    from '../core/EventBus.js';
 import { EVENTS }  from '../core/events.js';
 import RuleEngine  from '../sensors/RuleEngine.js';
+import ReplayController from '../core/ReplayController.js';
+import EventMarkers from '../charts/EventMarkers.js';
 
 // Bandera para ignorar eventos durante una limpieza activa.
 // Evita que RuleEngine.clearAlerts() añada items al historial
@@ -56,6 +58,19 @@ const AlertPanel = {
     // Debe ejecutarse ANTES de que RuleEngine.clearAlerts() emita sus eventos.
     EventBus.on(EVENTS.DATA_SOURCE_CLEARING, () => this.clearAll());
 
+    // ── Replay mode ────────────────────────────────────────────────────────
+    // Al entrar o scrubbear, repintamos la sección Active con el set
+    // snapshot.activeAlertIds. Al salir, restauramos la vista live.
+    this._replayHandler = ({ snapshot }) => {
+      if (!snapshot) return;
+      this._renderReplayActive(snapshot.activeAlertIds || []);
+    };
+    EventBus.on(EVENTS.REPLAY_ENTERED,  this._replayHandler);
+    EventBus.on(EVENTS.REPLAY_SCRUBBED, this._replayHandler);
+
+    this._replayExitHandler = () => this._restoreLiveActive();
+    EventBus.on(EVENTS.REPLAY_EXITED, this._replayExitHandler);
+
     // Actualizar timestamps cada 10s (más frecuente que antes para alertas cortas)
     this._timestampTimer = setInterval(() => this._refreshTimestamps(), 10_000);
   },
@@ -95,6 +110,10 @@ const AlertPanel = {
     // Ignorar eventos durante limpieza activa (cambio de fuente de datos)
     if (_clearing) return;
 
+    // Durante replay no mutamos el panel desde RULE_TRIGGERED: la vista
+    // refleja el snapshot histórico y se repinta al hacer scrub.
+    if (ReplayController.isActive()) return;
+
     if (alert.active) {
       if (!this._getActiveEl(alert.id)) {
         this._activeSince.set(alert.id, alert.timestamp);
@@ -105,6 +124,82 @@ const AlertPanel = {
     } else {
       this._resolveAlert(alert);
     }
+  },
+
+  // ─── Replay mode helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Repaints the Active section with the set of alerts active at a given
+   * historical snapshot. Alert metadata (severity, message, sensorIds) is
+   * pulled from EventMarkers which captured them at the time they fired.
+   *
+   * @param {string[]} alertIds
+   */
+  _renderReplayActive(alertIds) {
+    const body = document.getElementById('alerts-body');
+    if (!body) return;
+
+    // Indexar marcadores de alerta por id para hidratar los items
+    // con la metadata original (severity, message, sensorIds, timestamp).
+    const byId = new Map();
+    for (const ev of (EventMarkers._events || [])) {
+      if (ev.type === 'alert' && ev.id) byId.set(ev.id, ev);
+    }
+
+    body.innerHTML = '';
+
+    if (!alertIds.length) {
+      this._updateActiveEmpty();
+      // Contador refleja los ids del snapshot
+      const counter = document.getElementById('alert-count');
+      if (counter) {
+        counter.textContent = '0 in replay';
+        counter.style.color = 'var(--text2)';
+      }
+      return;
+    }
+
+    alertIds.forEach(id => {
+      const ev = byId.get(id);
+      if (!ev) return;
+      const pseudoAlert = {
+        id,
+        severity:  ev.severity ?? 'warning',
+        sensorIds: ev.sensorIds ?? [],
+        message:   ev.label ?? id,
+        timestamp: ev.timestamp,
+      };
+      this._renderActive(pseudoAlert);
+    });
+
+    // Contador custom durante replay
+    const counter = document.getElementById('alert-count');
+    if (counter) {
+      counter.textContent = `${alertIds.length} in replay`;
+      counter.style.color = 'var(--red)';
+    }
+  },
+
+  /**
+   * Called when replay exits: rebuild Active section from RuleEngine's
+   * current live state.
+   */
+  _restoreLiveActive() {
+    const body = document.getElementById('alerts-body');
+    if (!body) return;
+
+    body.innerHTML = '';
+    this._activeSince.clear();
+
+    RuleEngine.getActiveAlerts()
+      .sort(this._sortAlerts)
+      .forEach(alert => {
+        this._activeSince.set(alert.id, alert.timestamp);
+        this._renderActive(alert);
+      });
+
+    this._updateActiveEmpty();
+    this._updateCounters();
   },
 
   // ─── Render alerta activa ────────────────────────────────────────────────────
@@ -336,6 +431,15 @@ const AlertPanel = {
     if (this._handler) {
       EventBus.off(EVENTS.RULE_TRIGGERED, this._handler);
       this._handler = null;
+    }
+    if (this._replayHandler) {
+      EventBus.off(EVENTS.REPLAY_ENTERED,  this._replayHandler);
+      EventBus.off(EVENTS.REPLAY_SCRUBBED, this._replayHandler);
+      this._replayHandler = null;
+    }
+    if (this._replayExitHandler) {
+      EventBus.off(EVENTS.REPLAY_EXITED, this._replayExitHandler);
+      this._replayExitHandler = null;
     }
     if (this._timestampTimer !== null) {
       clearInterval(this._timestampTimer);
